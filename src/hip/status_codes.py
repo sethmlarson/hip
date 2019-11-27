@@ -52,7 +52,7 @@ class StatusCode(int, enum.Enum):
     PAYLOAD_TOO_LARGE = 413
     URI_TOO_LONG = 414
     UNSUPPORTED_MEDIA_TYPE = 415
-    REQUESTED_RANGE_NO_SATISFIABLE = 416
+    REQUESTED_RANGE_NOT_SATISFIABLE = 416
     EXPECTATION_FAILED = 417
     IM_A_TEAPOT = 418  # 'The resulting entity body MAY be short and stout'
     MISDIRECTED_REQUEST = 421
