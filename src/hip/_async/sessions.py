@@ -1,31 +1,42 @@
 import typing
 
 
-HeadersType = typing.Any  # TODO: Replace with the real HeadersType from 'models'
-Request = typing.Any  # TODO: Replace with the real Request type
-AsyncRequestData = typing.Any  # TODO: Replace with the AsyncRequestData type
-Cookies = typing.Any  # TODO: Replace with real Cookies type
+# TODO: Replace all of these with their real types.
+HeadersType = typing.Any
+Request = typing.Any
+AsyncRequestData = typing.Any
+Cookies = typing.Any
+AsyncResponse = typing.Any
+ProxiesType = typing.Any
+TimeoutType = typing.Any
+RetriesType = typing.Any
 
-QueryType = typing.Union[
-    typing.Sequence[typing.Tuple[str], typing.Tuple[str, str]],
+AuthType = typing.Union[
+    typing.Tuple[typing.Union[str, bytes], typing.Union[str, bytes]],
+    typing.Callable[[Request], Request],
+    # unasync needs to change typing.Awaitable[X] -> X
+    typing.Callable[[Request], typing.Awaitable[Request]],
+]
+ParamsType = typing.Union[
+    typing.Sequence[typing.Union[typing.Tuple[str], typing.Tuple[str, str]]],
     typing.Mapping[str, typing.Optional[str]],
 ]
 CookiesType = typing.Union[
     typing.Mapping[str, str], Cookies,
 ]
 DataType = typing.Union[
-    typing.AnyStr,
+    typing.Union[str, bytes],
     typing.BinaryIO,
     typing.TextIO,
-    typing.Iterable[typing.AnyStr],
-    # This needs to get unasync-ed into 'typing.Iterable[typing.AnyStr]'
-    typing.AsyncIterable[typing.AnyStr],
+    typing.Iterable[typing.Union[str, bytes]],
+    # This needs to get unasync-ed into 'typing.Iterable[typing.Union[str, bytes]]'
+    typing.AsyncIterable[typing.Union[str, bytes]],
     # This needs to get unasync-ed into 'SyncRequestData'
     AsyncRequestData,
 ]
 JSONType = typing.Union[
-    typing.Mapping["JSONType", "JSONType"],
-    typing.Sequence["JSONType"],
+    typing.Mapping[typing.Any, typing.Any],
+    typing.Sequence[typing.Any],
     int,
     bool,
     str,
@@ -53,36 +64,39 @@ class Session:
         # Request Headers
         method: str,
         url: str,
-        headers: HeadersType = None,
-        auth=None,
-        cookies: CookiesType = None,
-        query: QueryType = None,
+        headers: typing.Optional[HeadersType] = None,
+        auth: typing.Optional[AuthType] = None,
+        cookies: typing.Optional[CookiesType] = None,
+        params: typing.Optional[ParamsType] = None,
         # Request Body
-        data: DataType = None,
-        json: JSONType = None,
+        data: typing.Optional[DataType] = None,
+        json: typing.Optional[JSONType] = None,
         # Connection
-        timeout=None,
-        proxies=None,
-        http_versions: typing.Sequence[str] = None,
+        timeout: typing.Optional[TimeoutType] = None,
+        proxies: typing.Optional[ProxiesType] = None,
+        http_versions: typing.Optional[typing.Sequence[str]] = None,
         # Lifecycle
-        retries=None,
-        redirects: typing.Union[int, bool] = None,
-    ):
+        retries: typing.Optional[RetriesType] = None,
+        redirects: typing.Optional[typing.Union[int, bool]] = None,
+    ) -> AsyncResponse:
         """Sends a request."""
         ...
 
     def prepare_request(
-        self, method: str, url: str, headers=None, auth=None, cookies=None, query=None
+        self,
+        method: str,
+        url: str,
+        headers: typing.Optional[HeadersType] = None,
+        auth: typing.Optional[AuthType] = None,
+        cookies: typing.Optional[CookiesType] = None,
+        params: typing.Optional[ParamsType] = None,
     ) -> Request:
         """Given all components that contribute to a request sans-body
         create a Request instance. This method takes all the information from
         the 'Session' and merges it with info from the .request() call.
 
-        I've renamed 'params' to 'query' because I never understood the name 'params'.
-        Maybe that's just me and we should keep it params?
-
         The merging that Requests does is essentially: request() overwrites Session
-        level, for 'headers', 'cookies', and 'query' merge the dictionaries and if you
+        level, for 'headers', 'cookies', and 'params' merge the dictionaries and if you
         receive a value of 'None' for a key at the request() level then you
         pop that key out of the mapping.
 
