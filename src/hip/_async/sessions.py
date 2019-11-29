@@ -74,7 +74,7 @@ class Session:
         # Connection
         timeout: typing.Optional[TimeoutType] = None,
         proxies: typing.Optional[ProxiesType] = None,
-        http_versions: typing.Optional[typing.Sequence[str]] = None,
+        http_versions: typing.Optional[typing.Sequence[str]] = None,  # For now we only support HTTP/1.1.
         # Lifecycle
         retries: typing.Optional[RetriesType] = None,
         redirects: typing.Optional[typing.Union[int, bool]] = None,
