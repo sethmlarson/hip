@@ -1,7 +1,9 @@
 import typing
+from ..structures import _ParamNoValue
 
 
 # TODO: Replace all of these with their real types.
+Headers = typing.Any
 HeadersType = typing.Any
 Request = typing.Any
 AsyncRequestData = typing.Any
@@ -17,9 +19,10 @@ AuthType = typing.Union[
     # unasync needs to change typing.Awaitable[X] -> X
     typing.Callable[[Request], typing.Awaitable[Request]],
 ]
+ParamsValueType = typing.Union[str, _ParamNoValue]
 ParamsType = typing.Union[
-    typing.Sequence[typing.Union[typing.Tuple[str], typing.Tuple[str, str]]],
-    typing.Mapping[str, typing.Optional[str]],
+    typing.Sequence[typing.Tuple[str, ParamsValueType]],
+    typing.Mapping[str, typing.Optional[ParamsValueType]],
 ]
 CookiesType = typing.Union[
     typing.Mapping[str, str], Cookies,
@@ -74,7 +77,9 @@ class Session:
         # Connection
         timeout: typing.Optional[TimeoutType] = None,
         proxies: typing.Optional[ProxiesType] = None,
-        http_versions: typing.Optional[typing.Sequence[str]] = None,  # For now we only support HTTP/1.1.
+        http_versions: typing.Optional[
+            typing.Sequence[str]
+        ] = None,  # For now we only support HTTP/1.1.
         # Lifecycle
         retries: typing.Optional[RetriesType] = None,
         redirects: typing.Optional[typing.Union[int, bool]] = None,
@@ -105,11 +110,20 @@ class Session:
         One edge-case that has been brought up is how to set an 'empty' value
         versus a 'key without a value' in query string.
         See this long issue: https://github.com/psf/requests/issues/2651
+        To deal with this issue we have a sentinel called 'hip.PARAMS_NO_VALUE'
 
-        - Requests 2 has: {'k': ''} -> '?k=', {'k': None} -> None so there's no way to create '?k'
-        - "Requests 3" has "accepted" this solution: {'k': ''} -> '?k' but then there's suddenly no
-          way to create '?k=' so... doesn't seem like a solution.
-        - I'm proposing we allow [('k',)] -> '?k'?
+        {'k': 'v'} -> '?k=v'
+        {'k': ''} -> '?k='
+        {'k': hip.PARAMS_NO_VALUE} -> '?k'
+        {'k': ['v', hip.PARAMS_NO_VALUE]} -> '?k=v&k'
+        [('k', hip.PARAMS_NO_VALUE)] -> '?k'
+        [
+            ('k', ['v', hip.PARAMS_NO_VALUE]),
+            ('k', 'v'),
+            ('k', hip.PARAMS_NO_VALUE)
+        ] -> '?k=v&k&k=v&k'
+
+        This means that the sentinel will show up within request.url.params.items() calls (?)
 
         aiohttp also allows passing a raw string that isn't encoded at all.
         I'm guessing if we did this we wouldn't do any merging, would just replace?
