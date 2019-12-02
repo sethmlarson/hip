@@ -3,10 +3,10 @@ from ..models import Request, Response, Headers
 from ..structures import ConnectionConfig
 
 
-class HTTPLifecycle:
+class HTTPTransaction:
     """Represents a single HTTP Request -> Response over some transport.
     The transport is abstracted away and only known to the 'ConnectionManager'.
-    This lifecycle object is what the 'Session' objects see and use to send requests.
+    This transaction object is what the 'Session' objects see and use to send requests.
 
     Possible transports include:
     - HTTP/1.1
@@ -42,7 +42,7 @@ class HTTPLifecycle:
 
 
 class ConnectionManager:
-    async def start_http_lifecycle(
+    async def start_http_transaction(
         self, request: Request, conn_config: ConnectionConfig
     ) -> HTTPLifecycle:
         ...
