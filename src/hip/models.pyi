@@ -20,8 +20,8 @@ class Origin:
 
 class TLSVersion(enum.Enum):
     """Version specifier for TLS. Unless attempting to connect
-    with only a single TLS version tls_maximum_version should
-    be 'MAXIMUM_SUPPORTED'
+    with only a single TLS version tls_max_version should
+    be 'MAX_SUPPORTED'
     """
 
     MIN_SUPPORTED = "MIN_SUPPORTED"
