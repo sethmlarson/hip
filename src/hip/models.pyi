@@ -26,6 +26,10 @@ class Request:
     Also no reason to store HTTP version here as the final version
     of the request will be determined after the connection has
     been established.
+
+    We allow setting Request.target = '*' for both OPTIONS requests
+    and for HTTP proxies providing the target in absolute form.
+    If unset Request.target defaults to Request.url.path + ('?' + Request.url.params)?
     """
 
     def __init__(self, method: str, url: URLType, *, headers: HeadersType = None,): ...
@@ -37,3 +41,7 @@ class Request:
     def headers(self) -> Headers: ...
     @headers.setter
     def headers(self, value: HeadersType) -> Headers: ...
+    @property
+    def target(self) -> str: ...
+    @target.setter
+    def target(self, value: str) -> None: ...
