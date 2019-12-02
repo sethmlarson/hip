@@ -28,3 +28,5 @@ class RequestData:
         If the internal data is not rewindable and this function is called
         then a 'hip.UnrewindableBodyError' is raised.
         """
+    @property
+    def content_type(self) -> str: ...
