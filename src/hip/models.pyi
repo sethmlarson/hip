@@ -30,28 +30,3 @@ class TLSVersion(enum.Enum):
     TLSv1_2 = "TLSv1.2"
     TLSv1_3 = "TLSv1.3"
     MAX_SUPPORTED = "MAX_SUPPORTED"
-
-class TLSConfig:
-    def __init__(
-        self,
-        trust_env: bool = True,
-        ca_certs: typing.Optional[CACertsType] = None,
-        pinned_certs: typing.Optional[typing.Dict[str, str]] = None,
-        client_cert: typing.Optional[PathType] = None,
-        client_key: typing.Optional[PathType] = None,
-        client_key_password: typing.Optional[bytes] = None,
-        tls_min_version: TLSVersion = TLSVersion.TLSv1_2,
-        tls_max_version: TLSVersion = TLSVersion.MAX_SUPPORTED,
-    ): ...
-    def ssl_context(self, origin: Origin) -> ssl.SSLContext:
-        """Creates an SSLContext object from the configuration given.
-        If 'pinned_certs' is empty for the host then we can rely on OpenSSL
-        verifying hostnames for us. Otherwise we need to verify hostnames
-        for OpenSSL and fall-back on checking the fingerprint against the
-        one we have pinned.
-        """
-    def verify_peercert(self, origin: Origin, peercert: bytes) -> None:
-        """Callback that occurs after the handshake has happened from an SSLC. This allows
-        the TLSConfig object to do verification after the handshake has completed.
-        For example if no certificate matches within the trust store
-        """
