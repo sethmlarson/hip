@@ -49,8 +49,8 @@ class ConnectionConfig(typing.NamedTuple):
 
     All values must be exact matches except for:
     - pinned_certs
-    - tls_minimum_version
-    - tls_maximum_version
+    - tls_min_version
+    - tls_max_version
     - tls_alpn_protocols
     which match differently
     """
@@ -62,8 +62,8 @@ class ConnectionConfig(typing.NamedTuple):
     client_cert: typing.Optional[PathType]
     client_key: typing.Optional[PathType]
     client_password: typing.Optional[bytes]
-    tls_minimum_version: typing.Optional[TLSVersion]
-    tls_maximum_version: typing.Optional[TLSVersion]
+    tls_min_version: typing.Optional[TLSVersion]
+    tls_max_version: typing.Optional[TLSVersion]
     tls_alpn_protocols: typing.Tuple[str, ...]
     tls_server_hostname: typing.Optional[str]
     tls_session_ticket: typing.Optional[TLSSessionTicket]
