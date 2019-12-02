@@ -24,12 +24,12 @@ class TLSVersion(enum.Enum):
     be 'MAXIMUM_SUPPORTED'
     """
 
-    MINIMUM_SUPPORTED = "MINIMUM_SUPPORTED"
+    MIN_SUPPORTED = "MIN_SUPPORTED"
     TLSv1 = "TLSv1"
     TLSv1_1 = "TLSv1.1"
     TLSv1_2 = "TLSv1.2"
     TLSv1_3 = "TLSv1.3"
-    MAXIMUM_SUPPORTED = "MAXIMUM_SUPPORTED"
+    MAX_SUPPORTED = "MAX_SUPPORTED"
 
 class TLSConfig:
     def __init__(
@@ -40,8 +40,8 @@ class TLSConfig:
         client_cert: typing.Optional[PathType] = None,
         client_key: typing.Optional[PathType] = None,
         client_key_password: typing.Optional[bytes] = None,
-        tls_minimum_version: TLSVersion = TLSVersion.TLSv1_2,
-        tls_maximum_version: TLSVersion = TLSVersion.MAXIMUM_SUPPORTED,
+        tls_min_version: TLSVersion = TLSVersion.TLSv1_2,
+        tls_max_version: TLSVersion = TLSVersion.MAX_SUPPORTED,
     ): ...
     def ssl_context(self, origin: Origin) -> ssl.SSLContext:
         """Creates an SSLContext object from the configuration given.
