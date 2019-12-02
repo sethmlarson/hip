@@ -1,2 +1,25 @@
 from .status_codes import StatusCode
-from . import exceptions
+from .exceptions import (
+    HipError,
+    HTTPError,
+    LocalProtocolError,
+    RemoteProtocolError,
+    TimeoutError,
+    ReadTimeout,
+    ConnectTimeout,
+    ConnectionError,
+    RedirectLoopDetected,
+    TooManyRedirects,
+    TooManyRetries,
+    UnrewindableBodyError,
+    CannotRetryUnsafeRequest,
+    NameResolutionError,
+    ProxyError,
+    TLSError,
+    TLSVersionNotSupported,
+    CertificateError,
+    CertificateHostnameMismatch,
+    SelfSignedCertificate,
+    CertificateFingerprintMismatch,
+    URLError,
+)
