@@ -14,8 +14,8 @@ class HipError(Exception):
     def __init__(
         self,
         message: str,
-        request: typing.Optional[Request] = None,
-        response: typing.Optional[Response] = None,
+        request: typing.Optional["Request"] = None,
+        response: typing.Optional["Response"] = None,
         error: typing.Optional[Exception] = None,
     ):
         super().__init__(message)

@@ -227,7 +227,8 @@ class Request:
     ):
         self.method = method
         self.url = url
-        self.headers = headers
+
+        self._headers = Headers(headers or ())
         self._target = None
 
     @property
@@ -242,11 +243,11 @@ class Request:
 
     @property
     def headers(self) -> Headers:
-        ...
+        return self._headers
 
     @headers.setter
-    def headers(self, value: HeadersType) -> Headers:
-        ...
+    def headers(self, value: HeadersType) -> None:
+        self._headers = Headers(value)
 
     @property
     def target(self) -> str:
@@ -273,6 +274,14 @@ class Response:
         self.http_version = http_version
         self.headers = headers
         self.request = request
+
+        # Requests and aiohttp only give you 'Response' objects back in the history,
+        # so you can't trace where each individual response was from or match it to a given request.
+        # I think we're fine in doing that also? Requests mentions that only redirects end up
+        # here, but maybe it'd also be nice to have 1XX responses and retried-responses end up here too.
+        # The type-hint is 'Response' because users shouldn't depend on any Response body information
+        # once they are here as they are already drained. Only header information should be used.
+        self.history: typing.List[Response] = []
 
     def raise_for_status(self) -> None:
         """Raises an exception if the status_code is greater or equal to 400."""
@@ -322,18 +331,6 @@ class Response:
         """Sets the encoding of the response body, overriding anything that
         would otherwise be detected via 'Content-Type' or chardet.
         """
-
-    @property
-    def history(self) -> typing.Sequence["Response"]:
-        """Gets the history of how the first request eventually turned into this singular response.
-        Requests and aiohttp only gives you 'Response' objects back in the history,
-        so you can't trace where each individual response was from or match it to a given request.
-        I think we're fine in doing that also? Requests mentions that only redirects end up
-        here, but maybe it'd also be nice to have 1XX responses and retried-responses end up here too.
-        The type-hint is 'Response' because users shouldn't depend on any Response body information
-        once they are here as they are already drained. Only header information should be used.
-        """
-        ...
 
     def __repr__(self) -> str:
         return "<Response [%d]>" % self.status_code
@@ -404,6 +401,7 @@ class SyncResponse(Response):
 
     def __exit__(self, *_: typing.Any) -> None:
         """Automatically closes the response for you once the context manager is exited"""
+        self.close()
 
 
 class AsyncResponse(Response):
