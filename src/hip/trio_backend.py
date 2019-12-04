@@ -72,7 +72,7 @@ class TrioSocket:
         async def receiver():
             while True:
                 incoming = await self._stream.receive_some(BUFSIZE)
-                consume_bytes(incoming)
+                await consume_bytes(incoming)
 
         try:
             async with trio.open_nursery() as nursery:

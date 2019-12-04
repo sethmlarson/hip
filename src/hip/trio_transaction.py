@@ -48,34 +48,44 @@ class HTTP11Transaction(HTTPTransaction):
         await self.trio_socket.send_all(self.h11.send(h11_request))
 
         request_data_empty = False
-        response_history: typing.List[Response] = None
+        response_history: typing.List[Response] = []
         response: typing.Optional[Response] = None
         expect_100 = request.headers.get("expect", "") == "100-continue"
         expect_100_event = trio.Event()
+        expect_100_data_sent = trio.Event()
 
         async def produce_bytes() -> typing.Optional[bytes]:
-            nonlocal request_data_empty
+            nonlocal request_data_empty, expect_100, expect_100_data_sent, expect_100
+            # Don't start sending until we receive back any response.
             if expect_100:
                 await expect_100_event.wait()
             try:
                 nonlocal request_data
                 data = await request_data.__anext__()
-                return self.h11.send(h11.Data(data=data))
+                data_to_send = self.h11.send(h11.Data(data=data))
+                if expect_100:
+                    expect_100_data_sent.set()
+                    expect_100 = False
+                return data_to_send
             except StopAsyncIteration:
                 if not request_data_empty:
                     request_data_empty = True
-                    return self.h11.send(h11.EndOfMessage())
+                    return self.h11.send(h11.EndOfMessage()) or None
                 else:
                     return None
 
-        def consume_bytes(data: bytes) -> None:
-            nonlocal response
+        async def consume_bytes(data: bytes) -> None:
+            nonlocal response, expect_100, expect_100_data_sent, expect_100
             self.h11.receive_data(data)
+            print(data)
             event = self.h11.next_event()
             while event is not h11.NEED_DATA:
                 if isinstance(event, h11.InformationalResponse):
                     if event.status_code == 100 and expect_100:
+                        print("waiting")
                         expect_100_event.set()
+                        await expect_100_data_sent.wait()
+                        print("out")
                     response_history.append(_h11_event_to_response(event))
 
                 elif isinstance(event, h11.Response):
@@ -84,6 +94,8 @@ class HTTP11Transaction(HTTPTransaction):
                     raise LoopAbort()
                 else:
                     raise ValueError(str(event))
+
+                event = self.h11.next_event()
 
         await self.trio_socket.send_and_receive_for_a_while(
             produce_bytes, consume_bytes, 10.0
