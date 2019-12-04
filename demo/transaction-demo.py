@@ -8,12 +8,12 @@ async def main():
         yield b"Hello!"
 
     trans = HTTP11Transaction()
-    url = hip.URL(scheme="http", host="www.example.com", port=80, path="/")
+    url = hip.URL(scheme="https", host="httpbin.org", port=443, path="/anything")
     req = hip.Request(
         "HEAD",
         url,
         headers={
-            "host": "www.example.com",
+            "host": "httpbin.org",
             "accept": "*/*",
             "user-agent": "python-hip/0",
             "expect": "100-continue",

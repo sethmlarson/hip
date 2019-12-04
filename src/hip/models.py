@@ -77,6 +77,9 @@ class Origin:
             return NotImplemented
         return not self == other
 
+    def __iter__(self):
+        return iter((self.scheme, self.host, self.port))
+
 
 class URL:
     def __init__(
@@ -444,7 +447,7 @@ class AsyncResponse(Response):
 
 class TLSVersion(enum.Enum):
     """Version specifier for TLS. Unless attempting to connect
-    with only a single TLS version tls_maximum_version should
+    with only a single TLS version 'tls_max_version' should
     be 'MAXIMUM_SUPPORTED'
     """
 
@@ -454,6 +457,18 @@ class TLSVersion(enum.Enum):
     TLSv1_2 = "TLSv1.2"
     TLSv1_3 = "TLSv1.3"
     MAXIMUM_SUPPORTED = "MAXIMUM_SUPPORTED"
+
+
+# TLSVersion should be resolved to get rid of
+# 'MINIMUM_SUPPORTED' and 'MAXIMUM_SUPPORTED'
+# and replace with actual values for the TLS
+# library being used.
+LiteralTLSVersionType = typing.Union[
+    typing.Literal[TLSVersion.TLSv1],
+    typing.Literal[TLSVersion.TLSv1_1],
+    typing.Literal[TLSVersion.TLSv1_2],
+    typing.Literal[TLSVersion.TLSv1_3],
+]
 
 
 class Retry:
