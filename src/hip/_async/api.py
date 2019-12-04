@@ -1,7 +1,7 @@
 import typing
 from .sessions import Session
 from .models import AuthType, JSONType, DataType
-from ..models import (
+from hip.models import (
     AsyncResponse as Response,
     ParamsType,
     HeadersType,

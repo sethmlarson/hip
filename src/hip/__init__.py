@@ -36,6 +36,8 @@ from .models import (
 from .status_codes import StatusCode
 from . import _async as a
 
+# from . import _sync as s
+
 __all__ = [
     "URL",
     "Headers",
@@ -48,4 +50,7 @@ __all__ = [
     "Retry",
     "PARAM_NO_VALUE",
     "a",
+    "s",
 ]
+
+__version__ = "dev"

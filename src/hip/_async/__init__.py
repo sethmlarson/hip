@@ -1,7 +1,7 @@
 from .models import RequestData, URLEncodedForm, MultipartForm, JSON
 from .sessions import Session
 from .api import request
-from ..models import AsyncResponse as Response
+from hip.models import AsyncResponse as Response
 
 __all__ = [
     "RequestData",

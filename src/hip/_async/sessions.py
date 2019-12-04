@@ -1,6 +1,6 @@
 import typing
 from .models import JSON, JSONType, RequestData, URLEncodedForm, AuthType, DataType
-from ..models import (
+from hip.models import (
     Request,
     AsyncResponse as Response,
     ParamsType,

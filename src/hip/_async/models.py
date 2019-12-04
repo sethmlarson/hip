@@ -2,8 +2,8 @@ import os
 import binascii
 import typing
 import json
-from ..models import HeadersType, Request, Headers
-from ..utils import INT_TO_URLENC
+from hip.models import HeadersType, Request, Headers
+from hip.utils import INT_TO_URLENC
 
 
 AuthType = typing.Union[

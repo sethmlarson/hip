@@ -8,17 +8,19 @@ from .trio_backend import TrioBackend, TrioSocket, LoopAbort
 
 class HTTPTransaction:
     async def send_request(
-        self, request: Request, request_data: typing.AsyncIterable[bytes]
+        self, request: Request, request_data: typing.AsyncIterator[bytes]
     ) -> Response:
-        ...
+        """Starts an HTTP request and sends request data (if any) while waiting
+        for an HTTP response to be received. Exits upon receiving an HTTP response.
+        """
 
     async def receive_response_data(
-        self, request_data: typing.AsyncIterable[bytes]
+        self, request_data: typing.AsyncIterator[bytes]
     ) -> typing.AsyncIterable[bytes]:
-        ...
+        """Continues sending HTTP request data (if any) while streaming HTTP response data"""
 
     async def close(self) -> None:
-        ...
+        """Readies the transport to be used for a different HTTP transaction if possible."""
 
 
 class HTTP11Transaction(HTTPTransaction):
