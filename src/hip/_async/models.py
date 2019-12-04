@@ -2,7 +2,7 @@ import os
 import binascii
 import typing
 import json
-from ..models import HeadersType, Request
+from ..models import HeadersType, Request, Headers
 from ..utils import INT_TO_URLENC
 
 
@@ -142,17 +142,23 @@ class MultipartFormField(RequestData):
         name: str,
         data: typing.Optional[typing.Union[bytes, str, typing.BinaryIO]] = None,
         filename: typing.Optional[str] = None,
-        content_type: typing.Optional[str] = None,
         headers: typing.Optional[HeadersType] = None,
     ):
+        self._headers: Headers  # NOTE: Only a type annotation here.
         self.name = name
         self.data = data
         self.filename = filename
         self.headers = headers
-        self._content_type = content_type
 
-    def render_headers(self) -> bytes:
-        ...
+    @property
+    def headers(self) -> Headers:
+        return self._headers
+
+    @headers.setter
+    def headers(self, value: typing.Optional[HeadersType]) -> None:
+        if not isinstance(value, Headers):
+            value = Headers(value or ())
+        self._headers = value
 
     async def content_length(self) -> int:
         ...
@@ -175,6 +181,7 @@ class MultipartForm(RequestData):
     def add_field(
         self,
         name: str,
+        *,
         data: typing.Optional[typing.Union[bytes, str, typing.BinaryIO]] = None,
         filename: typing.Optional[str] = None,
         content_type: typing.Optional[str] = None,

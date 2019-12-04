@@ -10,7 +10,7 @@ async def main():
     trans = HTTP11Transaction()
     url = hip.URL(scheme="https", host="httpbin.org", port=443, path="/anything")
     req = hip.Request(
-        "HEAD",
+        "GET",
         url,
         headers={
             "host": "httpbin.org",
@@ -21,8 +21,11 @@ async def main():
         },
     )
     req.target = "/"
-    resp = await trans.send_request(request=req, request_data=data())
+    data_iter = data()
+    resp = await trans.send_request(request=req, request_data=data_iter)
     print(resp, resp.headers, resp.history)
+    async for chunk in trans.receive_response_data(request_data=data_iter):
+        print(chunk)
 
 
 trio.run(main)

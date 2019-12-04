@@ -54,14 +54,13 @@ class HTTP11Transaction(HTTPTransaction):
         )
         await self.trio_socket.send_all(self.h11.send(h11_request))
 
-        request_data_empty = False
         response_history: typing.List[Response] = []
         response: typing.Optional[Response] = None
         expect_100 = request.headers.get("expect", "") == "100-continue"
         expect_100_event = trio.Event()
 
         async def produce_bytes() -> typing.Optional[bytes]:
-            nonlocal request_data_empty, expect_100
+            nonlocal expect_100
             # Don't start sending until we receive back any response.
             if expect_100:
                 await expect_100_event.wait()
@@ -72,11 +71,7 @@ class HTTP11Transaction(HTTPTransaction):
                 data_to_send = self.h11.send(h11.Data(data=data))
                 return data_to_send
             except StopAsyncIteration:
-                if not request_data_empty:
-                    request_data_empty = True
-                    return self.h11.send(h11.EndOfMessage()) or None
-                else:
-                    return None
+                return None
 
         def consume_bytes(data: bytes) -> None:
             nonlocal response, expect_100
@@ -105,49 +100,65 @@ class HTTP11Transaction(HTTPTransaction):
     async def receive_response_data(
         self, request_data: typing.AsyncIterator[bytes]
     ) -> typing.AsyncIterable[bytes]:
+
         request_data_empty = False
-        try:
-            request_data_peek = await _iter_next(request_data)
-        except StopAsyncIteration:
-            request_data_empty = True
-            request_data_peek = b""
+        response_data: typing.List[bytes] = []
+        response_ended = False
 
-        async def produce_bytes() -> typing.Optional[bytes]:
-            nonlocal request_data_empty, request_data_peek, request_data
-            if request_data_empty:
-                return None
-
-            # Make sure we actually send the data we peeked earlier.
-            if request_data_peek:
-                data_to_send = self.h11.send(h11.Data(data=request_data_peek))
-                request_data_peek = b""
-                return data_to_send
-            else:
-                try:
-                    data = await _iter_next(request_data)
-                    data_to_send = self.h11.send(h11.Data(data=data))
-                    return data_to_send
-                except StopAsyncIteration:
-                    if not request_data_empty:
-                        request_data_empty = True
-                        return self.h11.send(h11.EndOfMessage()) or None
-                    else:
-                        return None
-
-        async def consume_bytes(data: bytes) -> None:
-            self.h11.receive_data(data)
+        def process_response_data() -> None:
+            nonlocal response_ended, response_data
             event = self.h11.next_event()
             while event is not h11.NEED_DATA:
-
+                if isinstance(event, h11.Data):
+                    response_data.append(event.data)
+                elif isinstance(event, h11.EndOfMessage):
+                    response_ended = True
+                else:
+                    raise ValueError(str(event))
                 event = self.h11.next_event()
 
-        await self.trio_socket.send_and_receive_for_a_while(
-            produce_bytes, consume_bytes, 10.0
-        )
-        return response
+            if response_data:
+                raise LoopAbort()
+
+        def get_response_data() -> bytes:
+            nonlocal response_data
+            data = b"".join(response_data)
+            response_data = []
+            return data
+
+        # Start off by parsing all events remaining in the
+        # pipeline from .send_request() for response data.
+        try:
+            process_response_data()
+        except LoopAbort:
+            yield get_response_data()
+
+        async def produce_bytes() -> typing.Optional[bytes]:
+            nonlocal request_data_empty
+
+            if request_data_empty:
+                return None
+            try:
+                data = await _iter_next(request_data)
+                return self.h11.send(h11.Data(data=data))
+            except StopAsyncIteration:
+                request_data_empty = True
+                return self.h11.send(h11.EndOfMessage()) or None
+
+        def consume_bytes(data: bytes) -> None:
+            self.h11.receive_data(data)
+            process_response_data()
+
+        while not response_ended:
+            try:
+                await self.trio_socket.send_and_receive_for_a_while(
+                    produce_bytes, consume_bytes, 10.0
+                )
+            except LoopAbort:
+                yield get_response_data()
 
     async def close(self) -> None:
-        self.trio_socket.forceful_close()
+        ...
 
 
 def _h11_event_to_response(

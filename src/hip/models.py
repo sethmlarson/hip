@@ -12,10 +12,10 @@ TimeoutType = typing.Any
 RetriesType = typing.Union[int, "Retry"]
 RedirectsType = typing.Union[bool, int]
 HeadersType = typing.Union[
-    typing.Mapping[str, str],
-    typing.Mapping[bytes, bytes],
-    typing.Iterable[typing.Tuple[str, str]],
-    typing.Iterable[typing.Tuple[bytes, bytes]],
+    typing.Mapping[str, typing.Optional[str]],
+    typing.Mapping[bytes, typing.Optional[bytes]],
+    typing.Iterable[typing.Tuple[str, typing.Optional[str]]],
+    typing.Iterable[typing.Tuple[bytes, typing.Optional[bytes]]],
     "Headers",
 ]
 URLType = typing.Union[str, "URL"]
@@ -50,7 +50,7 @@ class _ParamNoValue(object):
 
 
 PARAM_NO_VALUE = _ParamNoValue()
-ParamsValueType = typing.Union[str, _ParamNoValue]
+ParamsValueType = typing.Optional[typing.Union[str, _ParamNoValue]]
 ParamsType = typing.Union[
     typing.Sequence[typing.Tuple[str, ParamsValueType]],
     typing.Mapping[str, typing.Optional[ParamsValueType]],
@@ -178,6 +178,12 @@ class MultiMapping(typing.Generic[KT, VT]):
         for items in self._internal.values():
             for k, v in items:
                 yield k, v
+
+    def setdefault(self, key: KT, value: VT) -> typing.List[VT]:
+        return [
+            x
+            for _, x in self._internal.setdefault(self._normalize(key), [(key, value)])
+        ]
 
     def __getitem__(self, item: KT) -> VT:
         try:
