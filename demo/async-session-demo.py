@@ -6,7 +6,7 @@ import trio
 async def main():
     http = hip.a.Session()
     url = hip.URL(scheme="https", host="httpbin.org", port=443, path="/anything")
-    resp = await http.request("GET", url)
+    resp = await http.request("POST", url, json={"Hello": "world!"})
     resp.encoding = "utf-8"
 
     print(resp.status_code)

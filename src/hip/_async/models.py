@@ -95,16 +95,26 @@ class Bytes(RequestData):
         return len(self._data)
 
     async def data_chunks(self) -> typing.AsyncIterator[bytes]:
-        yield self._data
+        async def _inner() -> typing.AsyncIterable[bytes]:
+            yield self._data
+
+        return _inner().__aiter__()
 
     @property
     def content_type(self) -> str:
         return "application/octet-stream"
 
 
+def compact_json_dumps(obj: JSONType) -> str:
+    """Function that doesn't add extra whitespace when encoding JSON"""
+    return json.dumps(obj, separators=(",", ":"))
+
+
 class JSON(RequestData):
     def __init__(
-        self, json: JSONType, json_dumps: typing.Callable[[JSONType], str] = json.dumps
+        self,
+        json: JSONType,
+        json_dumps: typing.Callable[[JSONType], str] = compact_json_dumps,
     ):
         self._json = json
         self._json_dumps = json_dumps
@@ -114,7 +124,10 @@ class JSON(RequestData):
         return len(self._encode_json())
 
     async def data_chunks(self) -> typing.AsyncIterator[bytes]:
-        yield self._encode_json()
+        async def _inner() -> typing.AsyncIterable[bytes]:
+            yield self._encode_json()
+
+        return _inner().__aiter__()
 
     @property
     def content_type(self) -> str:
@@ -148,7 +161,10 @@ class URLEncodedForm(RequestData):
         return len(self._encode_form())
 
     async def data_chunks(self) -> typing.AsyncIterator[bytes]:
-        yield self._encode_form()
+        async def _inner() -> typing.AsyncIterable[bytes]:
+            yield self._encode_form()
+
+        return _inner().__aiter__()
 
     def _encode_form(self) -> bytes:
         if self._data is None:
