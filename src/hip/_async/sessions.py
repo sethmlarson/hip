@@ -1,5 +1,16 @@
 import typing
-from .models import JSON, JSONType, RequestData, URLEncodedForm, AuthType, DataType
+from .models import (
+    JSON,
+    JSONType,
+    RequestData,
+    URLEncodedForm,
+    AuthType,
+    DataType,
+    Bytes,
+    NoData,
+)
+from .transaction import HTTP11Transaction
+from hip._backends import get_backend
 from hip.models import (
     Request,
     AsyncResponse as Response,
@@ -13,6 +24,7 @@ from hip.models import (
     CACertsType,
     PinnedCertsType,
     CookiesType,
+    URLType,
 )
 
 
@@ -60,7 +72,7 @@ class Session:
         self,
         # Request Headers
         method: str,
-        url: str,
+        url: URLType,
         headers: typing.Optional[HeadersType] = None,
         auth: typing.Optional[AuthType] = None,
         cookies: typing.Optional[CookiesType] = None,
@@ -89,26 +101,36 @@ class Session:
         )
         request_data = self.prepare_data(data=data, json=json)
 
-        # TODO: Create an HTTPTransaction
-        while True:
-            transaction = transaction_manager.start_http_transaction(request)
+        # Set the framing headers
+        content_length = await request_data.content_length()
+        if content_length is None:
+            request.headers.setdefault("transfer-encoding", "chunked")
+        else:
+            request.headers.setdefault("content-length", str(content_length))
 
-            async def sending():
-                nonlocal request_data
-                async for chunk in (await request_data.data_chunks()):
-                    await transaction.send_request_data(chunk)
-                await transaction.send_eof()
+        content_type = request_data.content_type
+        if content_type is not None:
+            request.headers.setdefault("content-type", content_type)
 
-            async def receiving():
-                yield await transaction.receive_response_headers()
-                chunk = await transaction.receive_response_data()
-                while chunk:
-                    yield chunk
-                    chunk = await transaction.receive_response_data()
+        request.headers.setdefault("host", request.url.host)
+        request.headers.setdefault("accept", "*/*")
+        request.headers.setdefault("user-agent", "python-hip/0")
 
-            # Send and Receive here
+        backend = get_backend(True)
+        scheme, host, port = request.url.origin
+        socket = await backend.connect(host, port, connect_timeout=10.0)
+        if scheme == "https":
+            import ssl
 
-            await transaction.close()
+            socket = await socket.start_tls(
+                server_hostname=host, ssl_context=ssl.create_default_context()
+            )
+
+        transaction = HTTP11Transaction(socket)
+        resp = await transaction.send_request(
+            request, (await request_data.data_chunks())
+        )
+        return resp
 
     def prepare_request(
         self,
@@ -144,5 +166,12 @@ class Session:
 
         if json is not None:
             return JSON(json)
+        elif data is None:
+            return NoData()
         elif isinstance(data, (dict, list)):
             return URLEncodedForm(data)
+        elif isinstance(data, bytes):
+            return Bytes(data)
+        elif isinstance(data, str):
+            return Bytes(data.encode("utf-8"))
+        # TODO: File-like objects

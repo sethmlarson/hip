@@ -58,7 +58,7 @@ class RequestData:
         """
         raise NotImplementedError()
 
-    async def data_chunks(self) -> typing.AsyncIterable[bytes]:
+    async def data_chunks(self) -> typing.AsyncIterator[bytes]:
         """Factory object for creating an iterable over the wrapped object.
         If the internal data is not rewindable and this function is called
         then a 'hip.UnrewindableBodyError' is raised.
@@ -66,12 +66,46 @@ class RequestData:
         raise NotImplementedError()
 
     @property
-    def content_type(self) -> str:
+    def content_type(self) -> typing.Optional[str]:
         raise NotImplementedError()
 
 
+class NoData(RequestData):
+    async def content_length(self) -> typing.Optional[int]:
+        return 0
+
+    async def data_chunks(self) -> typing.AsyncIterator[bytes]:
+        return typing.cast(typing.AsyncIterator[bytes], self)
+
+    async def __anext__(self) -> None:
+        raise StopAsyncIteration()
+
+    @property
+    def content_type(self) -> typing.Optional[str]:
+        return None
+
+
+class Bytes(RequestData):
+    """Class representing the simplest data-type, just bytes."""
+
+    def __init__(self, data: bytes):
+        self._data = data
+
+    async def content_length(self) -> typing.Optional[int]:
+        return len(self._data)
+
+    async def data_chunks(self) -> typing.AsyncIterator[bytes]:
+        yield self._data
+
+    @property
+    def content_type(self) -> str:
+        return "application/octet-stream"
+
+
 class JSON(RequestData):
-    def __init__(self, json, json_dumps=json.dumps):
+    def __init__(
+        self, json: JSONType, json_dumps: typing.Callable[[JSONType], str] = json.dumps
+    ):
         self._json = json
         self._json_dumps = json_dumps
         self._data: typing.Optional[bytes] = None
@@ -79,7 +113,7 @@ class JSON(RequestData):
     async def content_length(self) -> typing.Optional[int]:
         return len(self._encode_json())
 
-    async def data_chunks(self) -> typing.AsyncIterable[bytes]:
+    async def data_chunks(self) -> typing.AsyncIterator[bytes]:
         yield self._encode_json()
 
     @property
@@ -88,7 +122,7 @@ class JSON(RequestData):
 
     def _encode_json(self) -> bytes:
         if self._data is None:
-            self._data = self._json_dumps(self._json)
+            self._data = self._json_dumps(self._json).encode("utf-8")
         return self._data
 
 
@@ -113,7 +147,7 @@ class URLEncodedForm(RequestData):
     async def content_length(self) -> int:
         return len(self._encode_form())
 
-    async def data_chunks(self) -> typing.AsyncIterable[bytes]:
+    async def data_chunks(self) -> typing.AsyncIterator[bytes]:
         yield self._encode_form()
 
     def _encode_form(self) -> bytes:
@@ -163,12 +197,12 @@ class MultipartFormField(RequestData):
     async def content_length(self) -> int:
         ...
 
-    async def data_chunks(self) -> typing.AsyncIterable[bytes]:
+    async def data_chunks(self) -> typing.AsyncIterator[bytes]:
         ...
 
     @property
     def content_type(self) -> str:
-        return self._content_type or "application/octet-stream"
+        return self.headers.get_one("content-type", "application/octet-stream")
 
 
 class MultipartForm(RequestData):
