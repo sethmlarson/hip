@@ -1,5 +1,7 @@
 import typing
 
+CHUNK_SIZE = 65536
+
 
 def _int_to_urlenc() -> typing.Dict[int, bytes]:
     """Creates a mapping of ordinals to bytes encoded via url-encoding"""

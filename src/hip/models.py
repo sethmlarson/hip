@@ -22,7 +22,6 @@ URLType = typing.Union[str, "URL"]
 ProxiesType = typing.Mapping[str, URLType]
 CookiesType = typing.Mapping[str, str]
 
-CHUNK_SIZE = 16384
 REDIRECT_STATUSES = {
     301,  # Moved Permanently
     302,  # Found
@@ -270,6 +269,9 @@ class Request:
     def target(self, value: str) -> None:
         self._target = value
 
+    def __repr__(self) -> str:
+        return f"<Request [{self.method}]>"
+
 
 class Response:
     def __init__(
@@ -291,6 +293,8 @@ class Response:
         # The type-hint is 'Response' because users shouldn't depend on any Response body information
         # once they are here as they are already drained. Only header information should be used.
         self.history: typing.List[Response] = []
+
+        self._encoding: typing.Optional[str] = None
 
     def raise_for_status(self) -> None:
         """Raises an exception if the status_code is greater or equal to 400."""
@@ -334,18 +338,31 @@ class Response:
         code that shouldn't have a body) then this gives back 'ascii'
         as the body should be an empty byte string.
         """
+        return self._encoding
 
     @encoding.setter
     def encoding(self, value: str) -> None:
         """Sets the encoding of the response body, overriding anything that
         would otherwise be detected via 'Content-Type' or chardet.
         """
+        self._encoding = value
 
     def __repr__(self) -> str:
         return "<Response [%d]>" % self.status_code
 
 
 class SyncResponse(Response):
+    def __init__(
+        self,
+        status_code: int,
+        http_version: str,
+        headers: HeadersType,
+        request: typing.Optional[Request] = None,
+        raw_data: typing.Optional[typing.Iterator[bytes]] = None,
+    ):
+        super().__init__(status_code, http_version, headers, request=request)
+        self._raw_data = raw_data
+
     def stream(self, chunk_size: typing.Optional[int] = None) -> typing.Iterator[bytes]:
         """Streams the response body as an iterator of bytes.
         Optionally set the chunk size, if chunk size is set
@@ -355,6 +372,7 @@ class SyncResponse(Response):
         response body is empty the iterator will immediately
         raise 'StopIteration'.
         """
+        return self._raw_data
 
     def stream_text(
         self, chunk_size: typing.Optional[int] = None
@@ -414,10 +432,21 @@ class SyncResponse(Response):
 
 
 class AsyncResponse(Response):
+    def __init__(
+        self,
+        status_code: int,
+        http_version: str,
+        headers: HeadersType,
+        request: typing.Optional[Request] = None,
+        raw_data: typing.Optional[typing.AsyncIterator[bytes]] = None,
+    ):
+        super().__init__(status_code, http_version, headers, request=request)
+        self._raw_data = raw_data
+
     def stream(
         self, chunk_size: typing.Optional[int] = None
     ) -> typing.AsyncIterator[bytes]:
-        ...
+        return self._raw_data
 
     def stream_text(
         self,

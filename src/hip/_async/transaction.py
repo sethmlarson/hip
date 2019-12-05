@@ -1,15 +1,17 @@
-import ssl
 import trio
 import h11
 import typing
-from .models import Request, Response
-from .trio_backend import TrioBackend, TrioSocket, LoopAbort
+from hip.models import Request, Response, AsyncResponse
+from hip._backends import AsyncSocket, AbortSendAndReceive
 
 
 class HTTPTransaction:
+    def __init__(self, socket: AsyncSocket):
+        self.socket = socket
+
     async def send_request(
         self, request: Request, request_data: typing.AsyncIterator[bytes]
-    ) -> Response:
+    ) -> AsyncResponse:
         """Starts an HTTP request and sends request data (if any) while waiting
         for an HTTP response to be received. Exits upon receiving an HTTP response.
         """
@@ -24,40 +26,19 @@ class HTTPTransaction:
 
 
 class HTTP11Transaction(HTTPTransaction):
-    def __init__(self):
+    def __init__(self, socket: AsyncSocket):
+        super().__init__(socket)
+
         self.h11 = h11.Connection(h11.CLIENT)
-        self.trio_socket: typing.Optional[TrioSocket] = None
 
     async def send_request(
         self, request: Request, request_data: typing.AsyncIterator[bytes]
-    ) -> Response:
-
-        # TODO: This has to be managed externally from the HTTP transaction.
-        trio_backend = TrioBackend()
-        scheme, host, port = request.url.origin
-        self.trio_socket = await trio_backend.connect(
-            host=host, port=port, connect_timeout=10.0
-        )
-        if scheme == "https":
-            ssl_context = ssl.create_default_context()
-            self.trio_socket = await self.trio_socket.start_tls(
-                server_hostname=host, ssl_context=ssl_context
-            )
-
-        # Construct an HTTP/1.1 Request
-        h11_headers = [(b"host", request.headers["host"].encode())]
-        for k, v in request.headers.items():
-            if k.lower() != "host":
-                h11_headers.append((k.encode(), v.encode()))
-        h11_request = h11.Request(
-            method=request.method.encode(),
-            target=request.target.encode(),
-            headers=h11_headers,
-        )
-        await self.trio_socket.send_all(self.h11.send(h11_request))
+    ) -> AsyncResponse:
+        h11_request = _request_to_h11_event(request)
+        await self.socket.send_all(self.h11.send(h11_request))
 
         response_history: typing.List[Response] = []
-        response: typing.Optional[Response] = None
+        response: typing.Optional[AsyncResponse] = None
         expect_100 = request.headers.get("expect", "") == "100-continue"
         expect_100_event = trio.Event()
 
@@ -81,20 +62,32 @@ class HTTP11Transaction(HTTPTransaction):
             event = self.h11.next_event()
             while event is not h11.NEED_DATA:
                 if isinstance(event, h11.InformationalResponse):
-                    if event.status_code == 100 and expect_100:
+                    if expect_100 and event.status_code == 100:
                         expect_100_event.set()
-                    response_history.append(_h11_event_to_response(event))
+                    response_history.append(
+                        Response(
+                            status_code=event.status_code,
+                            headers=event.headers,
+                            http_version=f"HTTP/{event.http_version.decode()}",
+                        )
+                    )
 
                 elif isinstance(event, h11.Response):
-                    response = _h11_event_to_response(event)
+                    response = AsyncResponse(
+                        status_code=event.status_code,
+                        headers=event.headers,
+                        http_version=f"HTTP/{event.http_version.decode()}",
+                        request=request,
+                        raw_data=self.receive_response_data(request_data).__aiter__(),
+                    )
                     response.history = response_history
-                    raise LoopAbort()
+                    raise AbortSendAndReceive()
                 else:
                     raise ValueError(str(event))
 
                 event = self.h11.next_event()
 
-        await self.trio_socket.send_and_receive_for_a_while(
+        await self.socket.send_and_receive_for_a_while(
             produce_bytes, consume_bytes, 10.0
         )
         return response
@@ -120,7 +113,7 @@ class HTTP11Transaction(HTTPTransaction):
                 event = self.h11.next_event()
 
             if response_data:
-                raise LoopAbort()
+                raise AbortSendAndReceive()
 
         def get_response_data() -> bytes:
             nonlocal response_data
@@ -132,7 +125,7 @@ class HTTP11Transaction(HTTPTransaction):
         # pipeline from .send_request() for response data.
         try:
             process_response_data()
-        except LoopAbort:
+        except AbortSendAndReceive:
             yield get_response_data()
 
         async def produce_bytes() -> typing.Optional[bytes]:
@@ -153,24 +146,26 @@ class HTTP11Transaction(HTTPTransaction):
 
         while not response_ended:
             try:
-                await self.trio_socket.send_and_receive_for_a_while(
+                await self.socket.send_and_receive_for_a_while(
                     produce_bytes, consume_bytes, 10.0
                 )
-            except LoopAbort:
+            except AbortSendAndReceive:
                 yield get_response_data()
 
     async def close(self) -> None:
         ...
 
 
-def _h11_event_to_response(
-    event: typing.Union[h11.InformationalResponse, h11.Response]
-) -> Response:
-    """Converts an h11.*Response event into hip.Response"""
-    return Response(
-        status_code=event.status_code,
-        headers=event.headers,
-        http_version=f"HTTP/{event.http_version.decode()}",
+def _request_to_h11_event(request: Request) -> h11.Request:
+    # Put the 'Host' header first in the request as it's required.
+    h11_headers = [(b"host", request.headers["host"].encode())]
+    for k, v in request.headers.items():
+        if k.lower() != "host":
+            h11_headers.append((k.encode(), v.encode()))
+    return h11.Request(
+        method=request.method.encode(),
+        target=request.target.encode(),
+        headers=h11_headers,
     )
 
 

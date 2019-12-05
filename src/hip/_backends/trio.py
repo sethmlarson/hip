@@ -1,21 +1,23 @@
 import trio
 import typing
-
-
-class LoopAbort(Exception):
-    pass
-
-
-BUFSIZE = 65536
+import socket
+from .base import AsyncBackend, AsyncSocket, AbortSendAndReceive, is_readable
+from hip import utils
 
 
 # XX support connect_timeout and read_timeout
 
 
-class TrioBackend:
+class TrioBackend(AsyncBackend):
     async def connect(
-        self, host, port, connect_timeout, source_address=None, socket_options=None
-    ):
+        self,
+        host,
+        port,
+        *,
+        connect_timeout,
+        source_address: typing.Optional[typing.Tuple[str, int]] = None,
+        socket_options=None
+    ) -> "TrioSocket":
         if source_address is not None:
             # You can't really combine source_address= and happy eyeballs
             # (can we get rid of source_address? or at least make it a source
@@ -37,7 +39,7 @@ class TrioBackend:
 # True so the connection won't be reused.
 
 
-class TrioSocket:
+class TrioSocket(AsyncSocket):
     def __init__(self, stream: typing.Union[trio.SocketStream, trio.SSLStream]):
         self._stream = stream
 
@@ -57,7 +59,7 @@ class TrioSocket:
         await self._stream.send_all(data)
 
     async def receive_some(self) -> bytes:
-        return await self._stream.receive_some(BUFSIZE)
+        return await self._stream.receive_some(utils.CHUNK_SIZE)
 
     async def send_and_receive_for_a_while(
         self, produce_bytes, consume_bytes, read_timeout
@@ -71,33 +73,30 @@ class TrioSocket:
 
         async def receiver():
             while True:
-                incoming = await self._stream.receive_some(BUFSIZE)
+                incoming = await self._stream.receive_some(utils.CHUNK_SIZE)
                 consume_bytes(incoming)
 
         try:
             async with trio.open_nursery() as nursery:
                 nursery.start_soon(sender)
                 nursery.start_soon(receiver)
-        except LoopAbort:
+        except AbortSendAndReceive:
             pass
+
+    # We want this to be synchronous, and don't care about graceful teardown
+    # of the SSL/TLS layer.
+    def forceful_close(self) -> None:
+        self._socket().close()
+
+    def is_readable(self) -> bool:
+        return is_readable(self._socket())
 
     # Pull out the underlying trio socket, because it turns out HTTP is not so
     # great at respecting abstraction boundaries.
-    def _socket(self):
+    def _socket(self) -> socket.socket:
         stream = self._stream
         # Strip off any layers of SSLStream
         while hasattr(stream, "transport_stream"):
             stream = stream.transport_stream
         # Now we have a SocketStream
         return stream.socket
-
-    # We want this to be synchronous, and don't care about graceful teardown
-    # of the SSL/TLS layer.
-    def forceful_close(self):
-        self._socket().close()
-
-    def is_readable(self):
-        return is_readable(self._socket())
-
-    def set_readable_watch_state(self, enabled):
-        pass
