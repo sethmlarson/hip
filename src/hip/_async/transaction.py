@@ -1,8 +1,7 @@
-import trio
 import h11
 import typing
 from hip.models import Request, Response, AsyncResponse
-from hip._backends import AsyncSocket, AbortSendAndReceive
+from hip._backends import AsyncSocket, AbortSendAndReceive, BlockedUntilNextRead
 
 
 class HTTPTransaction:
@@ -15,11 +14,6 @@ class HTTPTransaction:
         """Starts an HTTP request and sends request data (if any) while waiting
         for an HTTP response to be received. Exits upon receiving an HTTP response.
         """
-
-    async def receive_response_data(
-        self, request_data: typing.AsyncIterator[bytes]
-    ) -> typing.AsyncIterable[bytes]:
-        """Continues sending HTTP request data (if any) while streaming HTTP response data"""
 
     async def close(self) -> None:
         """Readies the transport to be used for a different HTTP transaction if possible."""
@@ -40,14 +34,12 @@ class HTTP11Transaction(HTTPTransaction):
         response_history: typing.List[Response] = []
         response: typing.Optional[AsyncResponse] = None
         expect_100 = request.headers.get("expect", "") == "100-continue"
-        expect_100_event = trio.Event()
 
         async def produce_bytes() -> typing.Optional[bytes]:
             nonlocal expect_100
             # Don't start sending until we receive back any response.
             if expect_100:
-                await expect_100_event.wait()
-                expect_100 = False
+                raise BlockedUntilNextRead()
             try:
                 nonlocal request_data
                 data = await _iter_next(request_data)
@@ -63,7 +55,7 @@ class HTTP11Transaction(HTTPTransaction):
             while event is not h11.NEED_DATA:
                 if isinstance(event, h11.InformationalResponse):
                     if expect_100 and event.status_code == 100:
-                        expect_100_event.set()
+                        expect_100 = False
                     response_history.append(
                         Response(
                             status_code=event.status_code,

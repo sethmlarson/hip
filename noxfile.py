@@ -34,9 +34,9 @@ def tests_impl(session, extras="socks,secure,brotli"):
         "-r",
         "a",
         "--tb=native",
-        "--cov=urllib3",
+        "--cov=hip",
         "--no-success-flaky-report",
-        *(session.posargs or ("test/",)),
+        *(session.posargs or ("tests/",)),
         env={"PYTHONWARNINGS": "always::DeprecationWarning"}
     )
     session.run("coverage", "xml")

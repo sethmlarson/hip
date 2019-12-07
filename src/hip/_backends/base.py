@@ -11,6 +11,10 @@ class AbortSendAndReceive(Exception):
     """Exception that signals Socket.send_and_receive_for_a_while() to abort."""
 
 
+class BlockedUntilNextRead(Exception):
+    """Exception that signals that 'produce_bytes()' cannot continue until data is read."""
+
+
 def is_readable(sock: socket.socket) -> bool:
     return wait_for_read(sock, timeout=0)
 

@@ -42,7 +42,6 @@ async def main():
     # With the Transaction send the Request and stream Response data
     # (will be handled by Session)
     resp = await trans.send_request(request=req, request_data=data_iter)
-    resp.encoding = "utf-8"  # Have to set this manually as encoding isn't determined automatically yet.
     print("response=", resp)
     print("request=", req)
     print("headers=", resp.headers)

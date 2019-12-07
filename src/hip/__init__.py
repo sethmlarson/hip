@@ -36,7 +36,10 @@ from .models import (
 from .status_codes import StatusCode
 from . import _async as a
 
-# from . import _sync as s
+try:
+    from . import _sync as s
+except ImportError:
+    pass
 
 __all__ = [
     "URL",

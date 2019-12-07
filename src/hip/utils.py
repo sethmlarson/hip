@@ -1,4 +1,7 @@
+import codecs
 import typing
+import functools
+import chardet
 
 CHUNK_SIZE = 65536
 
@@ -30,9 +33,23 @@ class MimeType(typing.NamedTuple):
     suffix: str
     parameters: typing.Dict[str, typing.Optional[str]]
 
+    def __hash__(self) -> int:
+        return hash(
+            (self.type, self.subtype, self.suffix, sorted(self.parameters.items()))
+        )
+
+    def __str__(self) -> str:
+        """Renders the mime type without parameters"""
+        if not self.type:
+            return ""
+        return (
+            f"{self.type}"
+            f"{'/' + self.subtype if self.subtype else ''}"
+            f"{'+' + self.suffix if self.suffix else ''}"
+        )
+
 
 def parse_mimetype(mimetype: str) -> MimeType:
-    """Mostly taken from aiohttp.utils"""
     if not mimetype:
         return MimeType(type="", subtype="", suffix="", parameters={})
 
@@ -47,18 +64,39 @@ def parse_mimetype(mimetype: str) -> MimeType:
         )
         params[key.lower().strip()] = value.strip(' "') if value else value
 
-    fulltype = parts[0].strip().lower()
-    if fulltype == "*":
-        fulltype = "*/*"
+    mimetype_no_params = parts[0].strip().lower()
+    if mimetype_no_params == "*":
+        mimetype_no_params = "*/*"
 
-    mtype, stype = (
-        typing.cast(typing.Tuple[str, str], fulltype.split("/", 1))
-        if "/" in fulltype
-        else (fulltype, "")
+    type, subtype = typing.cast(
+        typing.Tuple[str, str],
+        mimetype_no_params.split("/", 1)
+        if "/" in mimetype_no_params
+        else (mimetype_no_params, ""),
     )
-    stype, suffix = (
-        typing.cast(typing.Tuple[str, str], stype.split("+", 1))
-        if "+" in stype
-        else (stype, "")
+    subtype, suffix = typing.cast(
+        typing.Tuple[str, str],
+        subtype.split("+", 1) if "+" in subtype else (subtype, ""),
     )
-    return MimeType(type=mtype, subtype=stype, suffix=suffix, parameters=params)
+    return MimeType(type=type, subtype=subtype, suffix=suffix, parameters=params)
+
+
+@functools.lru_cache(128)
+def is_known_encoding(encoding: str) -> typing.Optional[str]:
+    """Given an encoding type, return either it's normalized name
+    if we understand the codec otherwise return 'None'.
+    """
+    try:
+        return codecs.lookup(encoding).name
+    except LookupError:
+        return None
+
+
+def encoding_detector() -> chardet.UniversalDetector:
+    """Gets an encoding detector object. Tries to use cChardet if available."""
+    try:
+        import cchardet
+
+        return typing.cast(chardet.UniversalDetector, cchardet.UniversalDetector())
+    except ImportError:
+        return chardet.UniversalDetector()

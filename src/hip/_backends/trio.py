@@ -1,7 +1,13 @@
 import trio
 import typing
 import socket
-from .base import AsyncBackend, AsyncSocket, AbortSendAndReceive, is_readable
+from .base import (
+    AsyncBackend,
+    AsyncSocket,
+    AbortSendAndReceive,
+    is_readable,
+    BlockedUntilNextRead,
+)
 from hip import utils
 
 
@@ -64,16 +70,28 @@ class TrioSocket(AsyncSocket):
     async def send_and_receive_for_a_while(
         self, produce_bytes, consume_bytes, read_timeout
     ):
+        bytes_read = trio.Event()
+
         async def sender():
+            nonlocal bytes_read
             while True:
-                outgoing = await produce_bytes()
+                try:
+                    outgoing = await produce_bytes()
+                except BlockedUntilNextRead:
+                    bytes_read = trio.Event()
+                    await bytes_read.wait()
+                    continue
+
                 if outgoing is None:
                     break
                 await self._stream.send_all(outgoing)
 
         async def receiver():
+            nonlocal bytes_read
             while True:
                 incoming = await self._stream.receive_some(utils.CHUNK_SIZE)
+                if incoming:
+                    bytes_read.set()
                 consume_bytes(incoming)
 
         try:

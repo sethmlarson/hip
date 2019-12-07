@@ -1,6 +1,6 @@
 import sniffio
 import typing
-from .base import AsyncSocket, AsyncBackend, AbortSendAndReceive
+from .base import AsyncSocket, AsyncBackend, AbortSendAndReceive, BlockedUntilNextRead
 from .sync import SyncSocket, SyncBackend
 from .trio import TrioBackend
 
@@ -10,6 +10,7 @@ __all__ = [
     "AsyncBackend",
     "SyncBackend",
     "AbortSendAndReceive",
+    "BlockedUntilNextRead",
 ]
 
 

@@ -20,6 +20,7 @@ def main():
             "accept": "*/*",
             "user-agent": "python-hip/0",
             "content-length": "6",
+            "expect": "100-continue",
         },
     )
     req.target = "/anything"

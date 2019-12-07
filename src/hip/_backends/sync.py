@@ -3,7 +3,12 @@ import socket
 import typing
 import ssl
 
-from .base import AbortSendAndReceive, SocketOptionsType, is_readable
+from .base import (
+    AbortSendAndReceive,
+    SocketOptionsType,
+    is_readable,
+    BlockedUntilNextRead,
+)
 from .wait import wait_for_socket
 from hip import utils
 
@@ -106,17 +111,22 @@ class SyncSocket(object):
     ):
         outgoing_finished = False
         outgoing = b""
+        waiting_for_read = False
         try:
             while True:
-                if not outgoing_finished and not outgoing:
+                if not outgoing_finished and not outgoing and not waiting_for_read:
                     # Can exit loop here with error
-                    b = produce_bytes()
-                    if b is None:
-                        outgoing = None
-                        outgoing_finished = True
+                    try:
+                        b = produce_bytes()
+                    except BlockedUntilNextRead:
+                        waiting_for_read = True
                     else:
-                        assert b
-                        outgoing = memoryview(b)
+                        if b is None:
+                            outgoing = None
+                            outgoing_finished = True
+                        else:
+                            assert b
+                            outgoing = memoryview(b)
 
                 # This controls whether or not we block
                 made_progress = False
@@ -143,6 +153,7 @@ class SyncSocket(object):
                         raise
                 else:
                     made_progress = True
+                    waiting_for_read = False
                     # Can exit loop here with LoopAbort
                     consume_bytes(incoming)
 

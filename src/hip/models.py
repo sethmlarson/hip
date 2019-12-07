@@ -3,6 +3,10 @@ import pathlib
 import enum
 import secrets
 import json
+import chardet
+import codecs
+from .utils import parse_mimetype, is_known_encoding, encoding_detector
+from .exceptions import HTTPError
 
 
 PathType = typing.Union[str, pathlib.Path]
@@ -184,6 +188,9 @@ class MultiMapping(typing.Generic[KT, VT]):
             for _, x in self._internal.setdefault(self._normalize(key), [(key, value)])
         ]
 
+    def __contains__(self, item: KT) -> bool:
+        return bool(self._internal.get(self._normalize(item), None))
+
     def __getitem__(self, item: KT) -> VT:
         try:
             return self._internal[self._normalize(item)][0][1]
@@ -203,6 +210,11 @@ class MultiMapping(typing.Generic[KT, VT]):
 class Headers(MultiMapping[str, typing.Optional[str]]):
     def _normalize(self, key: KT) -> KT:
         return key.lower()
+
+    def get_folded(self, key: str) -> str:
+        if self._normalize(key) == "set-cookie":
+            raise HTTPError("'Set-Cookie' header cannot be folded. Breaks semantics.")
+        return "; ".join(self.get_all(key))
 
     def __repr__(self) -> str:
         return f"<Headers {[(k, v) for k, v in self.items()]!r}>"
@@ -294,7 +306,9 @@ class Response:
         # once they are here as they are already drained. Only header information should be used.
         self.history: typing.List[Response] = []
 
+        self._headers: Headers
         self._encoding: typing.Optional[str] = None
+        self._encoding_decoder: typing.Optional[codecs.IncrementalDecoder] = None
 
     def raise_for_status(self) -> None:
         """Raises an exception if the status_code is greater or equal to 400."""
@@ -304,10 +318,19 @@ class Response:
         """Gets the effective 'Content-Type' of the response either from headers
         or returns 'application/octet-stream' if no such header if found.
         """
-        if "Content-Type" not in self.headers:
-            return "application/json"
-        content_type = self.headers.get_folded("Content-Type")
-        return content_type.split(";", 1).strip()
+        if "content-type" not in self.headers:
+            return "application/octet-stream"
+        content_type = "; ".join(self.headers.get_all("content-type"))
+        mimetype = parse_mimetype(content_type)
+        return str(mimetype)
+
+    @property
+    def content_length(self) -> typing.Optional[int]:
+        if "content-length" in self.headers:
+            values = self.headers.get_all("content-length")
+            if len(set(values)) == 1 and values[0].isdigit():
+                return int(values[0])
+        return None
 
     @property
     def is_redirect(self) -> bool:
@@ -316,6 +339,16 @@ class Response:
         have a valid 'Location' header.
         """
         return self.status_code in REDIRECT_STATUSES and "Location" in self.headers
+
+    @property
+    def headers(self) -> Headers:
+        return self._headers
+
+    @headers.setter
+    def headers(self, value: HeadersType) -> None:
+        if not isinstance(value, Headers):
+            value = Headers(value)
+        self._headers = value
 
     @property
     def encoding(self) -> typing.Optional[str]:
@@ -338,6 +371,17 @@ class Response:
         code that shouldn't have a body) then this gives back 'ascii'
         as the body should be an empty byte string.
         """
+        if self._encoding:
+            return self._encoding
+        if self.content_length == 0:
+            self._encoding = "ascii"
+        elif "content-type" in self.headers:
+            content_type = self.headers.get_folded("content-type")
+            mimetype = parse_mimetype(content_type)
+            if "charset" in mimetype.parameters:
+                encoding = is_known_encoding(mimetype.parameters["charset"])
+                if encoding:
+                    self._encoding = encoding
         return self._encoding
 
     @encoding.setter
@@ -362,6 +406,7 @@ class SyncResponse(Response):
     ):
         super().__init__(status_code, http_version, headers, request=request)
         self._raw_data = raw_data
+        self._content: typing.List[bytes]
 
     def stream(self, chunk_size: typing.Optional[int] = None) -> typing.Iterator[bytes]:
         """Streams the response body as an iterator of bytes.
@@ -372,7 +417,39 @@ class SyncResponse(Response):
         response body is empty the iterator will immediately
         raise 'StopIteration'.
         """
-        return self._raw_data
+
+        def stream_gen():
+            nonlocal self
+            # If our encoding isn't known from headers
+            # then we need to fire up chardets decoder.
+            encoding = self.encoding
+            if encoding is None:
+                detector = encoding_detector()
+            else:
+                detector = None
+
+            received_data = False
+            for chunk in self._raw_data:
+                # Feed data into detector until we get a result.
+                if detector:
+                    detector.feed(chunk)
+                    if detector.result and detector.result["encoding"]:
+                        self._encoding = detector.result["encoding"]
+                        detector = None
+
+                if chunk:
+                    received_data = True
+                yield chunk
+
+            # If we didn't receive any data then our encoding is 'ascii'
+            # and if we did receive data and are still stumped use 'utf-8'.
+            if self._encoding is None:
+                if not received_data:
+                    self._encoding = "ascii"
+                else:
+                    self._encoding = "utf-8"
+
+        return stream_gen().__iter__()
 
     def stream_text(
         self, chunk_size: typing.Optional[int] = None
@@ -442,16 +519,46 @@ class AsyncResponse(Response):
     ):
         super().__init__(status_code, http_version, headers, request=request)
         self._raw_data = raw_data
+        self._content: typing.List[bytes]
 
     def stream(
         self, chunk_size: typing.Optional[int] = None
     ) -> typing.AsyncIterator[bytes]:
-        return self._raw_data
+        async def stream_gen():
+            nonlocal self
+            # If our encoding isn't known from headers
+            # then we need to fire up chardets decoder.
+            encoding = self.encoding
+            if encoding is None:
+                detector = encoding_detector()
+            else:
+                detector = None
+
+            received_data = False
+            async for chunk in self._raw_data:
+                # Feed data into detector until we get a result.
+                if detector:
+                    detector.feed(chunk)
+                    if detector.result and detector.result["encoding"]:
+                        self._encoding = detector.result["encoding"]
+                        detector = None
+
+                if chunk:
+                    received_data = True
+                yield chunk
+
+            # If we didn't receive any data then our encoding is 'ascii'
+            # and if we did receive data and are still stumped use 'utf-8'.
+            if self._encoding is None:
+                if not received_data:
+                    self._encoding = "ascii"
+                else:
+                    self._encoding = "utf-8"
+
+        return stream_gen().__aiter__()
 
     def stream_text(
-        self,
-        chunk_size: typing.Optional[int] = None,
-        encoding: typing.Optional[str] = None,
+        self, chunk_size: typing.Optional[int] = None,
     ) -> typing.AsyncIterator[str]:
         ...
 
