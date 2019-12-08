@@ -1,6 +1,9 @@
 # Project-specific generated files
 docs/build/
 
+# Synchronous generated code
+src/hip/_sync/
+
 bench/results/
 bench/env/
 bench/trio/

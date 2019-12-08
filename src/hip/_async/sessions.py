@@ -9,11 +9,11 @@ from .models import (
     Bytes,
     NoData,
 )
+from .models import Response
 from .transaction import HTTP11Transaction
 from hip._backends import get_backend
 from hip.models import (
     Request,
-    AsyncResponse as Response,
     ParamsType,
     HeadersType,
     TimeoutType,

@@ -1,6 +1,7 @@
 import h11
 import typing
-from hip.models import Request, Response, AsyncResponse
+from .models import Response
+from hip.models import Request, Response as BaseResponse
 from hip._backends import AsyncSocket, AbortSendAndReceive, BlockedUntilNextRead
 
 
@@ -10,7 +11,7 @@ class HTTPTransaction:
 
     async def send_request(
         self, request: Request, request_data: typing.AsyncIterator[bytes]
-    ) -> AsyncResponse:
+    ) -> Response:
         """Starts an HTTP request and sends request data (if any) while waiting
         for an HTTP response to be received. Exits upon receiving an HTTP response.
         """
@@ -27,12 +28,12 @@ class HTTP11Transaction(HTTPTransaction):
 
     async def send_request(
         self, request: Request, request_data: typing.AsyncIterator[bytes]
-    ) -> AsyncResponse:
+    ) -> Response:
         h11_request = _request_to_h11_event(request)
         await self.socket.send_all(self.h11.send(h11_request))
 
-        response_history: typing.List[Response] = []
-        response: typing.Optional[AsyncResponse] = None
+        response_history: typing.List[BaseResponse] = []
+        response: typing.Optional[Response] = None
         expect_100 = request.headers.get("expect", "") == "100-continue"
 
         async def produce_bytes() -> typing.Optional[bytes]:
@@ -57,7 +58,7 @@ class HTTP11Transaction(HTTPTransaction):
                     if expect_100 and event.status_code == 100:
                         expect_100 = False
                     response_history.append(
-                        Response(
+                        BaseResponse(
                             status_code=event.status_code,
                             headers=event.headers,
                             http_version=f"HTTP/{event.http_version.decode()}",
@@ -65,7 +66,7 @@ class HTTP11Transaction(HTTPTransaction):
                     )
 
                 elif isinstance(event, h11.Response):
-                    response = AsyncResponse(
+                    response = Response(
                         status_code=event.status_code,
                         headers=event.headers,
                         http_version=f"HTTP/{event.http_version.decode()}",
@@ -80,7 +81,7 @@ class HTTP11Transaction(HTTPTransaction):
                 event = self.h11.next_event()
 
         await self.socket.send_and_receive_for_a_while(
-            produce_bytes, consume_bytes, 10.0
+            produce_bytes, consume_bytes, 100.0
         )
         return response
 
@@ -133,6 +134,7 @@ class HTTP11Transaction(HTTPTransaction):
                 return self.h11.send(h11.EndOfMessage()) or None
 
         def consume_bytes(data: bytes) -> None:
+            print(data)
             self.h11.receive_data(data)
             process_response_data()
 

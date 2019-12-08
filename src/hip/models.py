@@ -117,112 +117,146 @@ class URL:
 
 KT = typing.TypeVar("KT")
 VT = typing.TypeVar("VT")
+NormKT = typing.TypeVar("NormKT")
+NormVT = typing.TypeVar("NormVT")
 MultiMappingType = typing.Union[
     typing.Mapping[KT, VT], typing.Sequence[typing.Tuple[KT, VT]]
 ]
 
 
-class MultiMapping(typing.Generic[KT, VT]):
+class MultiMapping(typing.Generic[KT, VT, NormKT, NormVT]):
     def __init__(self, values: MultiMappingType = ()):
-        self._internal: typing.Dict[KT, typing.List[typing.Tuple[KT, VT]]] = {}
-        self.extend(values)
+        self._internal: typing.Dict[
+            NormKT, typing.List[typing.Tuple[NormKT, NormVT]]
+        ] = {}
+        if values:
+            self.extend(values)
 
     def get_one(
-        self, key: KT, default: typing.Optional[VT] = None
-    ) -> typing.Optional[VT]:
+        self, key: KT, default: typing.Optional[NormVT] = None
+    ) -> typing.Optional[NormVT]:
         try:
-            return self._internal[self._normalize(key)][0][1]
+            return self._internal[self._normalize_key(key)][0][1]
         except (KeyError, IndexError):
             return default
 
     get = get_one
 
-    def get_all(self, key: KT) -> typing.List[VT]:
+    def get_all(self, key: KT) -> typing.List[NormVT]:
         try:
-            return [x[1] for x in self._internal[self._normalize(key)]]
+            return [x[1] for x in self._internal[self._normalize_key(key)]]
         except KeyError:
             return []
 
     def pop_one(
         self, key: KT, default: typing.Optional[VT] = None
-    ) -> typing.Optional[VT]:
+    ) -> typing.Optional[NormVT]:
         try:
-            items = self._internal[self._normalize(key)]
+            items = self._internal[self._normalize_key(key)]
             return items.pop(0)[1]
         except (KeyError, IndexError):
             return default
 
     pop = pop_one
 
-    def pop_all(self, key: KT) -> typing.List[VT]:
+    def pop_all(self, key: KT) -> typing.List[NormVT]:
         try:
-            return [x[1] for x in self._internal.pop(self._normalize(key))]
+            return [x[1] for x in self._internal.pop(self._normalize_key(key))]
         except KeyError:
             return []
 
     def add(self, key: KT, value: VT) -> None:
-        self._internal.setdefault(self._normalize(key), []).append((key, value))
+        key = self._normalize_key(key)
+        self._internal.setdefault(key, []).append((key, self._normalize_value(value)))
 
     def extend(self, items: MultiMappingType) -> None:
         for k, v in items.items() if hasattr(items, "items") else items:
             self.add(k, v)
 
-    def keys(self) -> typing.Iterable[KT]:
+    def keys(self) -> typing.Iterable[NormKT]:
         for items in self._internal.values():
             if items:
                 yield items[0][0]
 
-    def values(self) -> typing.Iterable[VT]:
+    def values(self) -> typing.Iterable[NormVT]:
         for items in self._internal.values():
             for _, value in items:
                 yield value
 
-    def items(self) -> typing.Iterable[typing.Tuple[KT, VT]]:
+    def items(self) -> typing.Iterable[typing.Tuple[NormKT, NormVT]]:
         for items in self._internal.values():
             for k, v in items:
                 yield k, v
 
-    def setdefault(self, key: KT, value: VT) -> typing.List[VT]:
+    def setdefault(self, key: KT, value: VT) -> typing.List[NormVT]:
         return [
             x
-            for _, x in self._internal.setdefault(self._normalize(key), [(key, value)])
+            for _, x in self._internal.setdefault(
+                self._normalize_key(key), [(key, self._normalize_value(value))]
+            )
         ]
 
     def __contains__(self, item: KT) -> bool:
-        return bool(self._internal.get(self._normalize(item), None))
+        return bool(self._internal.get(self._normalize_key(item), None))
 
     def __getitem__(self, item: KT) -> VT:
         try:
-            return self._internal[self._normalize(item)][0][1]
+            return self._internal[self._normalize_key(item)][0][1]
         except (KeyError, IndexError):
             raise KeyError(item) from None
 
     def __setitem__(self, key: KT, value: VT):
-        self._internal[self._normalize(key)] = [(key, value)]
+        key = self._normalize_key(key)
+        self._internal[key] = [(key, self._normalize_value(value))]
 
     def __delitem__(self, key: KT) -> None:
-        self._internal.pop(self._normalize(key), None)
+        self._internal.pop(self._normalize_key(key), None)
 
-    def _normalize(self, key: KT) -> KT:
+    def _normalize_key(self, key: KT) -> NormKT:
         return key
 
+    def _normalize_value(self, value: VT) -> NormVT:
+        return value
 
-class Headers(MultiMapping[str, typing.Optional[str]]):
-    def _normalize(self, key: KT) -> KT:
+
+class Headers(
+    MultiMapping[
+        typing.Union[str, bytes],
+        typing.Optional[typing.Union[str, bytes]],
+        str,
+        typing.Optional[str],
+    ]
+):
+    def _normalize_key(self, key: KT) -> NormKT:
+        if isinstance(key, bytes):
+            key = key.decode("utf-8")
         return key.lower()
 
+    def _normalize_value(self, value: VT) -> NormVT:
+        if isinstance(value, bytes):
+            value = value.decode("utf-8")
+        return value
+
     def get_folded(self, key: str) -> str:
-        if self._normalize(key) == "set-cookie":
+        if self._normalize_key(key) == "set-cookie":
             raise HTTPError("'Set-Cookie' header cannot be folded. Breaks semantics.")
         return "; ".join(self.get_all(key))
 
     def __repr__(self) -> str:
-        return f"<Headers {[(k, v) for k, v in self.items()]!r}>"
+        # Smart repr that switches to list-of-tuple mode when
+        # multiple values for one key are detected. Most of the
+        # time it's easier to read the dictionary.
+        if any(len(x) > 1 for x in self._internal.values()):
+            internal_repr = repr([(k, v) for k, v in self.items()])
+        else:
+            # Note the unpacking within (k, v),
+            internal_repr = repr({k: v for (k, v), in self._internal.values()})
+        return f"<Headers {internal_repr}>"
 
     __str__ = __repr__
 
 
-class Params(MultiMapping[str, ParamsValueType]):
+class Params(MultiMapping[str, ParamsValueType, str, ParamsValueType]):
     def __repr__(self) -> str:
         return f"<Params {[(k, v) for k, v in self.items()]!r}>"
 
@@ -393,198 +427,6 @@ class Response:
 
     def __repr__(self) -> str:
         return "<Response [%d]>" % self.status_code
-
-
-class SyncResponse(Response):
-    def __init__(
-        self,
-        status_code: int,
-        http_version: str,
-        headers: HeadersType,
-        request: typing.Optional[Request] = None,
-        raw_data: typing.Optional[typing.Iterator[bytes]] = None,
-    ):
-        super().__init__(status_code, http_version, headers, request=request)
-        self._raw_data = raw_data
-        self._content: typing.List[bytes]
-
-    def stream(self, chunk_size: typing.Optional[int] = None) -> typing.Iterator[bytes]:
-        """Streams the response body as an iterator of bytes.
-        Optionally set the chunk size, if chunk size is set
-        then you are guaranteed to get chunks exactly equal to the
-        size given *except* for the last chunk of data and for
-        the case where the response body is empty. If the
-        response body is empty the iterator will immediately
-        raise 'StopIteration'.
-        """
-
-        def stream_gen():
-            nonlocal self
-            # If our encoding isn't known from headers
-            # then we need to fire up chardets decoder.
-            encoding = self.encoding
-            if encoding is None:
-                detector = encoding_detector()
-            else:
-                detector = None
-
-            received_data = False
-            for chunk in self._raw_data:
-                # Feed data into detector until we get a result.
-                if detector:
-                    detector.feed(chunk)
-                    if detector.result and detector.result["encoding"]:
-                        self._encoding = detector.result["encoding"]
-                        detector = None
-
-                if chunk:
-                    received_data = True
-                yield chunk
-
-            # If we didn't receive any data then our encoding is 'ascii'
-            # and if we did receive data and are still stumped use 'utf-8'.
-            if self._encoding is None:
-                if not received_data:
-                    self._encoding = "ascii"
-                else:
-                    self._encoding = "utf-8"
-
-        return stream_gen().__iter__()
-
-    def stream_text(
-        self, chunk_size: typing.Optional[int] = None
-    ) -> typing.Iterator[str]:
-        """Same as above except decodes the bytes into str while iterating.
-        Critical point to note is that 'chunk_size' corresponds to the
-        length of the decoded string, not the length of the bytes being read.
-        We'll have to deal with reading partial multi-byte characters from the wire
-        and somehow making the best of it.
-        This function will also have to deal with Response.encoding returning
-        'None' because not all data will be read from the response necessarily
-        meaning we'll have to use chardets incremental support.
-        """
-
-    def data(self) -> bytes:
-        """Basically calls b''.join(self.stream()) and hands it to you"""
-        if not hasattr(self, "_content"):
-            self._content = []
-            for chunk in self.stream():
-                self._content.append(chunk)
-        return b"".join(self._content)
-
-    def text(self) -> str:
-        """Same as above except ''.join(self.stream_text())"""
-        return self.data().decode(self.encoding)
-
-    @typing.overload
-    def as_file(self, mode: typing.Literal["r"]) -> typing.TextIO:
-        ...
-
-    @typing.overload
-    def as_file(self, mode: typing.Literal["rb"]) -> typing.BinaryIO:
-        ...
-
-    def as_file(self, mode: str = "r") -> typing.Union[typing.TextIO, typing.BinaryIO]:
-        """Creates a file-like object that can be used within things like csv.DictReader(),
-        data-frames, and other interfaces expecting a file-like interface.
-        I don't know what this would look like on the async-side. For now I have omitted it.
-        Looking at what trio exposes as an interface is probably a good place to start.
-        """
-
-    def json(
-        self, loads: typing.Callable[[str], typing.Any] = json.loads
-    ) -> typing.Any:
-        """Attempts to decode self.text() into JSON, optionally with a custom JSON loader."""
-        return loads(self.text())
-
-    def close(self) -> None:
-        """Flushes the response body and puts the connection back into the pool"""
-
-    def __enter__(self) -> "SyncResponse":
-        ...
-
-    def __exit__(self, *_: typing.Any) -> None:
-        """Automatically closes the response for you once the context manager is exited"""
-        self.close()
-
-
-class AsyncResponse(Response):
-    def __init__(
-        self,
-        status_code: int,
-        http_version: str,
-        headers: HeadersType,
-        request: typing.Optional[Request] = None,
-        raw_data: typing.Optional[typing.AsyncIterator[bytes]] = None,
-    ):
-        super().__init__(status_code, http_version, headers, request=request)
-        self._raw_data = raw_data
-        self._content: typing.List[bytes]
-
-    def stream(
-        self, chunk_size: typing.Optional[int] = None
-    ) -> typing.AsyncIterator[bytes]:
-        async def stream_gen():
-            nonlocal self
-            # If our encoding isn't known from headers
-            # then we need to fire up chardets decoder.
-            encoding = self.encoding
-            if encoding is None:
-                detector = encoding_detector()
-            else:
-                detector = None
-
-            received_data = False
-            async for chunk in self._raw_data:
-                # Feed data into detector until we get a result.
-                if detector:
-                    detector.feed(chunk)
-                    if detector.result and detector.result["encoding"]:
-                        self._encoding = detector.result["encoding"]
-                        detector = None
-
-                if chunk:
-                    received_data = True
-                yield chunk
-
-            # If we didn't receive any data then our encoding is 'ascii'
-            # and if we did receive data and are still stumped use 'utf-8'.
-            if self._encoding is None:
-                if not received_data:
-                    self._encoding = "ascii"
-                else:
-                    self._encoding = "utf-8"
-
-        return stream_gen().__aiter__()
-
-    def stream_text(
-        self, chunk_size: typing.Optional[int] = None,
-    ) -> typing.AsyncIterator[str]:
-        ...
-
-    async def data(self) -> bytes:
-        if not hasattr(self, "_content"):
-            self._content = []
-            async for chunk in self.stream():
-                self._content.append(chunk)
-        return b"".join(self._content)
-
-    async def text(self) -> str:
-        return (await self.data()).decode(self.encoding)
-
-    async def json(
-        self, loads: typing.Callable[[str], typing.Any] = json.loads
-    ) -> typing.Any:
-        return loads((await self.text()))
-
-    async def close(self) -> None:
-        ...
-
-    async def __aenter__(self) -> "AsyncResponse":
-        ...
-
-    async def __aexit__(self, *_: typing.Any) -> None:
-        await self.close()
 
 
 class TLSVersion(enum.Enum):

@@ -2,8 +2,8 @@ import os
 import binascii
 import typing
 import json
-from hip.models import HeadersType, Request, Headers
-from hip.utils import INT_TO_URLENC
+from hip.models import HeadersType, Request, Headers, Response as BaseResponse
+from hip.utils import INT_TO_URLENC, encoding_detector
 
 
 AuthType = typing.Union[
@@ -33,6 +33,126 @@ JSONType = typing.Union[
     float,
     None,
 ]
+
+
+class Response(BaseResponse):
+    def __init__(
+        self,
+        status_code: int,
+        http_version: str,
+        headers: HeadersType,
+        request: typing.Optional[Request] = None,
+        raw_data: typing.Optional[typing.AsyncIterator[bytes]] = None,
+    ):
+        super().__init__(status_code, http_version, headers, request=request)
+        self._raw_data = raw_data
+        self._content: typing.List[bytes]
+
+    def stream(
+        self, chunk_size: typing.Optional[int] = None
+    ) -> typing.AsyncIterator[bytes]:
+        """Streams the response body as an iterator of bytes.
+        Optionally set the chunk size, if chunk size is set
+        then you are guaranteed to get chunks exactly equal to the
+        size given *except* for the last chunk of data and for
+        the case where the response body is empty. If the
+        response body is empty the iterator will immediately
+        raise 'StopIteration'.
+        """
+
+        async def stream_gen() -> typing.AsyncIterable[bytes]:
+            nonlocal self
+            # If our encoding isn't known from headers
+            # then we need to fire up chardets decoder.
+            encoding = self.encoding
+            if encoding is None:
+                detector = encoding_detector()
+            else:
+                detector = None
+
+            received_data = 0
+            async for chunk in self._raw_data:
+                # Feed data into detector until we get a result.
+                received_data += len(chunk)
+                if detector:
+                    detector.feed(chunk)
+                    if detector.result and (
+                        detector.result["encoding"] or received_data > 4096
+                    ):
+                        self._encoding = detector.result["encoding"] or "utf-8"
+                        detector = None
+
+                yield chunk
+
+            # If we didn't receive any data then our encoding is 'ascii'
+            # and if we did receive data and are still stumped use 'utf-8'.
+            if self._encoding is None:
+                if received_data == 0:
+                    self._encoding = "ascii"
+                else:
+                    self._encoding = "utf-8"
+
+        return stream_gen().__aiter__()
+
+    def stream_text(
+        self, chunk_size: typing.Optional[int] = None,
+    ) -> typing.AsyncIterator[str]:
+        """Same as above except decodes the bytes into str while iterating.
+        Critical point to note is that 'chunk_size' corresponds to the
+        length of the decoded string, not the length of the bytes being read.
+        We'll have to deal with reading partial multi-byte characters from the wire
+        and somehow making the best of it.
+        This function will also have to deal with Response.encoding returning
+        'None' because not all data will be read from the response necessarily
+        meaning we'll have to use chardets incremental support.
+        """
+        buffer = bytearray()
+        buffer_flushed = False
+
+        async def stream_gen() -> typing.AsyncIterable[str]:
+            nonlocal buffer, buffer_flushed
+            async for chunk in self.stream():
+                if self._encoding is None:
+                    buffer += chunk
+                else:
+                    if not buffer_flushed:
+                        buffer_flushed = True
+                        if len(buffer):
+                            yield bytes(buffer).decode(self._encoding)
+                    yield chunk.decode(self._encoding)
+
+            if not buffer_flushed:
+                yield bytes(buffer).decode(self._encoding)
+
+        return stream_gen().__aiter__()
+
+    async def data(self) -> bytes:
+        """Basically calls b''.join(self.stream()) and hands it to you"""
+        if not hasattr(self, "_content"):
+            self._content = []
+            async for chunk in self.stream():
+                self._content.append(chunk)
+        return b"".join(self._content)
+
+    async def text(self) -> str:
+        """Same as above except ''.join(self.stream_text())"""
+        return (await self.data()).decode(self.encoding)
+
+    async def json(
+        self, loads: typing.Callable[[str], typing.Any] = json.loads
+    ) -> typing.Any:
+        """Attempts to decode self.text() into JSON, optionally with a custom JSON loader."""
+        return loads((await self.text()))
+
+    async def close(self) -> None:
+        """Flushes the response body and puts the connection back into the pool"""
+
+    async def __aenter__(self) -> "AsyncResponse":
+        return self
+
+    async def __aexit__(self, *_: typing.Any) -> None:
+        """Automatically closes the response for you once the context manager is exited"""
+        await self.close()
 
 
 class RequestData:
