@@ -3,15 +3,15 @@ import hip
 import trio
 
 
-async def main():
-    http = hip.a.Session()
+def main():
+    http = hip.s.Session()
     url = hip.URL(scheme="https", host="httpbin.org", port=443, path="/anything")
-    resp = await http.request("POST", url, json={"Hello": "world!"})
+    resp = http.request("POST", url, json={"Hello": "world!"})
 
     print(resp.status_code)
     print(resp.headers)
-    resp_json = await resp.json()
+    resp_json = resp.json()
     print(json.dumps(resp_json, sort_keys=True, indent=2))
 
 
-trio.run(main)
+main()

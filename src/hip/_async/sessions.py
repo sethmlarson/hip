@@ -28,6 +28,24 @@ from hip.models import (
 )
 
 
+def detect_is_async() -> typing.Union[typing.Literal[True], typing.Literal[False]]:
+    """Tests if we're in the async part of the code or not"""
+
+    async def f():
+        """Unasync transforms async functions in sync functions"""
+        return None
+
+    obj = f()
+    if obj is None:
+        return typing.cast(typing.Literal[False], False)
+    else:
+        obj.close()  # prevent un-awaited coroutine warning
+        return typing.cast(typing.Literal[True], True)
+
+
+IS_ASYNC = detect_is_async()
+
+
 class Session:
     """
     The central instance that manages HTTP life-cycles and interfaces
@@ -116,7 +134,7 @@ class Session:
         request.headers.setdefault("accept", "*/*")
         request.headers.setdefault("user-agent", "python-hip/0")
 
-        backend = get_backend(True)
+        backend = get_backend(IS_ASYNC)
         scheme, host, port = request.url.origin
         socket = await backend.connect(host, port, connect_timeout=10.0)
         if scheme == "https":
