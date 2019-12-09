@@ -1,0 +1,6 @@
+import typing
+
+class UniversalDetector:
+    def feed(self, data: bytes) -> None: ...
+    @property
+    def result(self) -> typing.Optional[typing.Mapping[str, typing.Any]]: ...

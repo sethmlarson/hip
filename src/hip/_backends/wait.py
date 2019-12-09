@@ -71,7 +71,7 @@ def poll_wait_for_socket(
     poll_obj.register(sock, mask)
 
     # For some reason, poll() takes timeout in milliseconds
-    def do_poll(t):
+    def do_poll(t: typing.Optional[float]) -> typing.List[typing.Tuple[int, int]]:
         if t is not None:
             t *= 1000
         return poll_obj.poll(t)
@@ -95,6 +95,11 @@ def _have_working_poll() -> bool:
         return True
 
 
+_wait_for_socket: typing.Optional[
+    typing.Callable[[socket.socket, bool, bool, typing.Optional[float]], bool]
+] = None
+
+
 def wait_for_socket(
     sock: socket.socket,
     read: bool = False,
@@ -105,17 +110,18 @@ def wait_for_socket(
     # called. We could do it at import time, but then we might make the wrong
     # decision if someone goes wild with monkeypatching select.poll after
     # we're imported.
-    global wait_for_socket
-    if _have_working_poll():
-        wait_for_socket = poll_wait_for_socket
-    elif hasattr(select, "select"):
-        wait_for_socket = select_wait_for_socket
-    else:
-        wait_for_socket = null_wait_for_socket
-    return wait_for_socket(sock, read=read, write=write, timeout=timeout)
+    global _wait_for_socket
+    if _wait_for_socket is None:
+        if _have_working_poll():
+            _wait_for_socket = poll_wait_for_socket
+        elif hasattr(select, "select"):
+            _wait_for_socket = select_wait_for_socket
+        else:
+            _wait_for_socket = null_wait_for_socket
+    return _wait_for_socket(sock, read, write, timeout)
 
 
-def wait_for_read(sock: socket.socket, timeout: typing.Optional[float] = None):
+def wait_for_read(sock: socket.socket, timeout: typing.Optional[float] = None) -> bool:
     """ Waits for reading to be available on a given socket.
     Returns True if the socket is readable, or False if the timeout expired.
     """

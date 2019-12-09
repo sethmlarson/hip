@@ -8,7 +8,7 @@ import codecs
 import pathlib
 import hmac
 import hashlib
-from .utils import parse_mimetype, is_known_encoding, pretty_fingerprint
+from .utils import parse_mimetype, is_known_encoding, pretty_fingerprint, none_is_inf
 from .exceptions import HTTPError, CertificateFingerprintMismatch
 
 
@@ -63,13 +63,12 @@ ParamsType = typing.Union[
 ]
 
 
-class Origin:
-    def __init__(self, scheme: str, host: str, port: int):
-        self.scheme = scheme
-        self.host = host
-        self.port = port
+class Origin(typing.NamedTuple):
+    scheme: str
+    host: str
+    port: int
 
-    def __eq__(self, other: "Origin") -> bool:
+    def __eq__(self, other: object) -> bool:
         if not isinstance(other, Origin):
             return NotImplemented
         return (
@@ -78,16 +77,18 @@ class Origin:
             and self.port == other.port
         )
 
-    def __ne__(self, other: "Origin") -> bool:
+    def __ne__(self, other: object) -> bool:
         if not isinstance(other, Origin):
             return NotImplemented
         return not self == other
 
-    def __iter__(self):
-        return iter((self.scheme, self.host, self.port))
-
 
 class URL:
+    DEFAULT_PORT_BY_SCHEME: typing.Dict[str, int] = {
+        "http": 80,
+        "https": 443,
+    }
+
     def __init__(
         self,
         url: typing.Optional[URLType] = None,
@@ -112,7 +113,15 @@ class URL:
 
     @property
     def origin(self) -> Origin:
-        return Origin(self.scheme, self.host, self.port)
+        if self.scheme is None or self.host is None:
+            raise HTTPError("Origin cannot be determined for non-absolute URLs")
+        if self.port is None:
+            if self.scheme not in self.DEFAULT_PORT_BY_SCHEME:
+                raise HTTPError(f"Unknown default port for scheme '{self.scheme}'")
+            port = self.DEFAULT_PORT_BY_SCHEME[self.scheme]
+        else:
+            port = self.port
+        return Origin(self.scheme, self.host, port)
 
     def join(self, url: URLType) -> "URL":
         ...
@@ -243,7 +252,7 @@ class Headers(
     def get_folded(self, key: str) -> str:
         if self._normalize_key(key) == "set-cookie":
             raise HTTPError("'Set-Cookie' header cannot be folded. Breaks semantics.")
-        return "; ".join(self.get_all(key))
+        return "; ".join([x for x in self.get_all(key) if x is not None])
 
     def __repr__(self) -> str:
         # Smart repr that switches to list-of-tuple mode when
@@ -551,8 +560,8 @@ def verify_peercert_fingerprint(
     """Checks the fingerprint of a certificate. Raises an exception
     if the pinned cert doesn't match the presented cert.
     """
-    host, expected_fingerprint = pinned_cert
-    expected_fingerprint = binascii.unhexlify(expected_fingerprint.replace(":", ""))
+    host, host_fingerprint = pinned_cert
+    expected_fingerprint = binascii.unhexlify(host_fingerprint.replace(":", ""))
     algos: typing.Dict[int, typing.Any] = {
         16: hashlib.md5,
         20: hashlib.sha1,
@@ -678,7 +687,8 @@ class Retry:
         """
 
     def _delay_backoff(self) -> float:
-        if self.max_backoff <= 0.0:
+        max_backoff = none_is_inf(self.max_backoff)
+        if max_backoff <= 0.0:
             return 0.0
 
         # Apply jittering to not hammer a service on regular intervals
@@ -690,11 +700,11 @@ class Retry:
                 self.backoff_jitter
             )
 
-        backoff = (
+        backoff: float = (
             self.backoff_factor * (2 ** (self._backoff_counter - 1)) * jitter_factor
         )
-        return min(self.max_backoff, backoff)
+        return min(max_backoff, backoff)
 
     def _delay_retry_after(self, response: Response) -> float:
         retry_after = response.headers.get("Retry-After", "0")
-        return float(retry_after)
+        return float(retry_after or 0)

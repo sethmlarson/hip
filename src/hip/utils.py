@@ -26,7 +26,7 @@ def _int_to_urlenc() -> typing.Dict[int, bytes]:
 
 
 INT_TO_URLENC = _int_to_urlenc()
-INT_TO_HEX = {x: hex(x)[2:].upper().zfill(2) for x in range(256)}
+INT_TO_HEX: typing.Dict[int, str] = {x: hex(x)[2:].upper().zfill(2) for x in range(256)}
 
 
 class MimeType(typing.NamedTuple):
@@ -106,5 +106,9 @@ def encoding_detector() -> chardet.UniversalDetector:
 
 def pretty_fingerprint(fingerprint: typing.Union[bytes, str]) -> str:
     if isinstance(fingerprint, str):
-        fingerprint = binascii.unhexlify(fingerprint.replace(":", "").encode()).decode()
+        fingerprint = binascii.unhexlify(fingerprint.replace(":", "").encode())
     return ":".join([INT_TO_HEX[x] for x in fingerprint])
+
+
+def none_is_inf(value: typing.Optional[float]) -> float:
+    return float("inf") if value is None else value

@@ -2,6 +2,7 @@ import os
 import binascii
 import typing
 import json
+import chardet
 from hip.models import HeadersType, Request, Headers, Response as BaseResponse
 from hip.utils import INT_TO_URLENC, encoding_detector
 
@@ -62,9 +63,11 @@ class Response(BaseResponse):
 
         async def stream_gen() -> typing.AsyncIterable[bytes]:
             nonlocal self
+            encoding = self.encoding
+
             # If our encoding isn't known from headers
             # then we need to fire up chardets decoder.
-            encoding = self.encoding
+            detector: typing.Optional[chardet.UniversalDetector]
             if encoding is None:
                 detector = encoding_detector()
             else:

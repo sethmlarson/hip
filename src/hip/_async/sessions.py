@@ -12,7 +12,7 @@ from .models import (
 )
 from .models import Response
 from .transaction import HTTP11Transaction
-from hip._backends import get_backend
+from hip._backends import get_backend, AsyncBackend
 from hip.models import (
     Request,
     ParamsType,
@@ -137,7 +137,7 @@ class Session:
         request.headers.setdefault("accept", "*/*")
         request.headers.setdefault("user-agent", "python-hip/0")
 
-        backend = get_backend(IS_ASYNC)
+        backend = typing.cast(AsyncBackend, get_backend(IS_ASYNC))
         scheme, host, port = request.url.origin
         socket = await backend.connect(host, port, connect_timeout=10.0)
 
