@@ -134,7 +134,6 @@ class HTTP11Transaction(HTTPTransaction):
                 return self.h11.send(h11.EndOfMessage()) or None
 
         def consume_bytes(data: bytes) -> None:
-            print(data)
             self.h11.receive_data(data)
             process_response_data()
 
@@ -145,6 +144,11 @@ class HTTP11Transaction(HTTPTransaction):
                 )
             except AbortSendAndReceive:
                 yield get_response_data()
+
+        # Drain any last data from the queue.
+        data = get_response_data()
+        if data:
+            yield data
 
     async def close(self) -> None:
         ...

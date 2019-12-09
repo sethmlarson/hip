@@ -2,6 +2,7 @@ import codecs
 import typing
 import functools
 import chardet
+import binascii
 
 CHUNK_SIZE = 65536
 
@@ -25,6 +26,7 @@ def _int_to_urlenc() -> typing.Dict[int, bytes]:
 
 
 INT_TO_URLENC = _int_to_urlenc()
+INT_TO_HEX = {x: hex(x)[2:].upper().zfill(2) for x in range(256)}
 
 
 class MimeType(typing.NamedTuple):
@@ -100,3 +102,9 @@ def encoding_detector() -> chardet.UniversalDetector:
         return typing.cast(chardet.UniversalDetector, cchardet.UniversalDetector())
     except ImportError:
         return chardet.UniversalDetector()
+
+
+def pretty_fingerprint(fingerprint: typing.Union[bytes, str]) -> str:
+    if isinstance(fingerprint, str):
+        fingerprint = binascii.unhexlify(fingerprint.replace(":", "").encode()).decode()
+    return ":".join([INT_TO_HEX[x] for x in fingerprint])

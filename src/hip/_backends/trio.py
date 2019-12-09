@@ -38,6 +38,9 @@ class TrioBackend(AsyncBackend):
 
         return TrioSocket(stream)
 
+    async def sleep(self, seconds: float) -> None:
+        await trio.sleep(seconds)
+
 
 # XX it turns out that we don't need SSLStream to be robustified against
 # cancellation, but we probably should do something to detect when the stream
@@ -56,6 +59,7 @@ class TrioSocket(AsyncSocket):
             server_hostname=server_hostname,
             https_compatible=True,
         )
+        await wrapped.do_handshake()
         return TrioSocket(wrapped)
 
     def getpeercert(self, binary_form=False):

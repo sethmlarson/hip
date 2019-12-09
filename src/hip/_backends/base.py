@@ -33,6 +33,9 @@ class AsyncBackend:
     ) -> "AsyncSocket":
         ...
 
+    async def sleep(self, seconds: float) -> None:
+        ...
+
 
 class AsyncSocket:
     async def start_tls(

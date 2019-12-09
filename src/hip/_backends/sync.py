@@ -2,6 +2,7 @@ import errno
 import socket
 import typing
 import ssl
+import time
 
 from .base import (
     AbortSendAndReceive,
@@ -29,6 +30,9 @@ class SyncBackend(object):
             conn.setsockopt(level, optname, value)
 
         return SyncSocket(conn)
+
+    def sleep(self, seconds: float) -> None:
+        time.sleep(seconds)
 
 
 class SyncSocket(object):
@@ -85,7 +89,7 @@ class SyncSocket(object):
                 self._wait(readable=False, writable=True)
             except (OSError, socket.error) as e:
                 if e.errno in (errno.EWOULDBLOCK, errno.EAGAIN):
-                    self._wait(readable=True, writable=False)
+                    self._wait(readable=False, writable=True)
                 else:
                     raise
 
@@ -154,7 +158,7 @@ class SyncSocket(object):
                 else:
                     made_progress = True
                     waiting_for_read = False
-                    # Can exit loop here with LoopAbort
+                    # Can exit loop here with AbortSendAndReceive
                     consume_bytes(incoming)
 
                 if not outgoing_finished:

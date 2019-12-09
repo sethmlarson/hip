@@ -25,6 +25,12 @@ class HipError(Exception):
         self.response = response
         self.error = error
 
+    def __repr__(self) -> str:
+        return f"hip.{type(self).__name__}: {self.message}"
+
+    def __str__(self) -> str:
+        return self.message
+
 
 class HTTPError(HipError):
     """Generic error relating to HTTP"""

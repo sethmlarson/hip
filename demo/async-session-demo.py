@@ -6,10 +6,13 @@ import trio
 async def main():
     http = hip.a.Session()
     url = hip.URL(scheme="https", host="httpbin.org", port=443, path="/anything")
-    resp = await http.request("POST", url, json={"Hello": "world!"})
+    resp = await http.request("POST", url, headers={"expect": "100-continue"}, json={"Hello": "world!"})
 
     print(resp.status_code)
     print(resp.headers)
+    print(resp.history)
+    print(resp.request)
+    print(await resp.text())
     resp_json = await resp.json()
     print(json.dumps(resp_json, sort_keys=True, indent=2))
 

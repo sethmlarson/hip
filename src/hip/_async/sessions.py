@@ -1,3 +1,4 @@
+import certifi
 import typing
 from .models import (
     JSON,
@@ -25,6 +26,8 @@ from hip.models import (
     PinnedCertsType,
     CookiesType,
     URLType,
+    create_ssl_context,
+    verify_peercert_fingerprint,
 )
 
 
@@ -66,11 +69,11 @@ class Session:
         timeout: typing.Optional[TimeoutType] = None,
         proxies: typing.Optional[ProxiesType] = None,
         trust_env: bool = True,
-        ca_certs: typing.Optional[CACertsType] = None,
+        ca_certs: typing.Optional[CACertsType] = certifi.where(),
         pinned_certs: typing.Optional[PinnedCertsType] = None,
         tls_min_version: typing.Optional[TLSVersion] = TLSVersion.TLSv1_2,
         tls_max_version: typing.Optional[TLSVersion] = TLSVersion.MAXIMUM_SUPPORTED,
-        http_versions: typing.Optional[typing.Sequence[str]] = None,
+        http_versions: typing.Optional[typing.Sequence[str]] = ("HTTP/1.1",),
     ):
         self.headers = headers
         self.auth = auth
@@ -81,7 +84,7 @@ class Session:
         self.trust_env = trust_env
 
         self.ca_certs = ca_certs
-        self.pinned_certs = pinned_certs
+        self.pinned_certs = pinned_certs or {}
         self.tls_min_version = tls_min_version
         self.tls_max_version = tls_max_version
         self.http_versions = http_versions
@@ -137,12 +140,26 @@ class Session:
         backend = get_backend(IS_ASYNC)
         scheme, host, port = request.url.origin
         socket = await backend.connect(host, port, connect_timeout=10.0)
-        if scheme == "https":
-            import ssl
 
-            socket = await socket.start_tls(
-                server_hostname=host, ssl_context=ssl.create_default_context()
+        if scheme == "https":
+            pinned_cert = self.pinned_certs.get(host, None)
+            if pinned_cert is not None:
+                pinned_cert = (host, pinned_cert)
+
+            ctx = create_ssl_context(
+                ca_certs=self.ca_certs,
+                pinned_cert=self.pinned_certs,
+                http_versions=self.http_versions,
+                tls_min_version=self.tls_min_version,
+                tls_max_version=self.tls_max_version,
             )
+            socket = await socket.start_tls(server_hostname=host, ssl_context=ctx)
+
+            if pinned_cert:
+                verify_peercert_fingerprint(
+                    peercert=socket.getpeercert(binary_form=True),
+                    pinned_cert=pinned_cert,
+                )
 
         transaction = HTTP11Transaction(socket)
         resp = await transaction.send_request(

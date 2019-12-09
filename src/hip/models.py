@@ -1,12 +1,15 @@
+import binascii
+import ssl
 import typing
-import pathlib
+import os
 import enum
 import secrets
-import json
-import chardet
 import codecs
-from .utils import parse_mimetype, is_known_encoding, encoding_detector
-from .exceptions import HTTPError
+import pathlib
+import hmac
+import hashlib
+from .utils import parse_mimetype, is_known_encoding, pretty_fingerprint
+from .exceptions import HTTPError, CertificateFingerprintMismatch
 
 
 PathType = typing.Union[str, pathlib.Path]
@@ -453,6 +456,121 @@ LiteralTLSVersionType = typing.Union[
     typing.Literal[TLSVersion.TLSv1_2],
     typing.Literal[TLSVersion.TLSv1_3],
 ]
+
+
+# All the TLS options
+TLS_OP_NO_SSLv2 = getattr(ssl, "OP_NO_SSLv2", 0x01000000)
+TLS_OP_NO_SSLv3 = getattr(ssl, "OP_NO_SSLv3", 0x02000000)
+TLS_OP_NO_TLSv1 = getattr(ssl, "OP_NO_TLSv1", 0x04000000)
+TLS_OP_NO_TLSv1_1 = getattr(ssl, "OP_NO_TLSv1_1", 0x10000000)
+TLS_OP_NO_TLSv1_2 = getattr(ssl, "OP_NO_TLSv1_2", 0x08000000)
+TLS_OP_NO_TLSv1_3 = getattr(ssl, "OP_NO_TLSv1_3", 0x20000000)
+TLS_OP_NO_COMPRESSION = getattr(ssl, "OP_NO_COMPRESSION", 0x00020000)
+TLS_OP_DEFAULTS = TLS_OP_NO_SSLv2 | TLS_OP_NO_SSLv3 | TLS_OP_NO_COMPRESSION
+TLS_MIN_VERSION_OPTIONS: typing.Dict[TLSVersion, int] = {
+    TLSVersion.MINIMUM_SUPPORTED: 0,
+    TLSVersion.TLSv1: 0,
+    TLSVersion.TLSv1_1: TLS_OP_NO_TLSv1,
+    TLSVersion.TLSv1_2: (TLS_OP_NO_TLSv1 | TLS_OP_NO_TLSv1_1),
+    TLSVersion.TLSv1_3: (TLS_OP_NO_TLSv1 | TLS_OP_NO_TLSv1_1 | TLS_OP_NO_TLSv1_2),
+    TLSVersion.MAXIMUM_SUPPORTED: (
+        TLS_OP_NO_TLSv1 | TLS_OP_NO_TLSv1_1 | TLS_OP_NO_TLSv1_2
+    ),
+}
+TLS_MAX_VERSION_OPTIONS: typing.Dict[TLSVersion, int] = {
+    TLSVersion.MINIMUM_SUPPORTED: (
+        TLS_OP_NO_TLSv1_1 | TLS_OP_NO_TLSv1_2 | TLS_OP_NO_TLSv1_3
+    ),
+    TLSVersion.TLSv1: TLS_OP_NO_TLSv1_1 | TLS_OP_NO_TLSv1_2 | TLS_OP_NO_TLSv1_3,
+    TLSVersion.TLSv1_1: TLS_OP_NO_TLSv1_2 | TLS_OP_NO_TLSv1_3,
+    TLSVersion.TLSv1_2: TLS_OP_NO_TLSv1_3,
+    TLSVersion.TLSv1_3: 0,
+    TLSVersion.MAXIMUM_SUPPORTED: 0,
+}
+
+
+def create_ssl_context(
+    ca_certs: typing.Optional[CACertsType],
+    pinned_cert: typing.Optional[str],
+    http_versions: typing.Sequence[str],
+    tls_min_version: TLSVersion,
+    tls_max_version: TLSVersion,
+) -> ssl.SSLContext:
+
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS)
+
+    if ca_certs:
+        if isinstance(ca_certs, bytes):
+            ctx.load_verify_locations(cadata=ca_certs)
+        elif os.path.isdir(ca_certs):
+            ctx.load_verify_locations(capath=ca_certs)
+        elif os.path.isfile(ca_certs):
+            ctx.load_verify_locations(cafile=ca_certs)
+        else:
+            raise
+
+    ctx.options |= (
+        TLS_OP_DEFAULTS
+        | TLS_MIN_VERSION_OPTIONS[tls_min_version]
+        | TLS_MAX_VERSION_OPTIONS[tls_max_version]
+    )
+
+    alpn_protocols = [
+        x for x in (http_version_to_alpn(ver) for ver in http_versions) if x
+    ]
+    if alpn_protocols:
+        ctx.set_alpn_protocols(alpn_protocols)
+
+    # If we're going to be checking a pinned cert fingerprint
+    # then disable certificate verification. Will be
+    # verified with verify_pinned_cert()
+    if pinned_cert:
+        ctx.verify_mode = ssl.CERT_NONE
+        ctx.check_hostname = False
+    else:
+        ctx.verify_mode = ssl.CERT_REQUIRED
+        ctx.check_hostname = True
+
+    return ctx
+
+
+def http_version_to_alpn(http_version: str) -> typing.Optional[str]:
+    """Given an HTTP version return the ALPN protocol identifier
+    if one exists. If the HTTP version is valid but doesn't have
+    a corresponding ALPN protocol identifier then return 'None'.
+    """
+    try:
+        return {"HTTP/2": "h2", "HTTP/1.1": "http/1.1", "HTTP/1.0": None,}[http_version]
+    except KeyError:
+        raise ValueError(f"unknown http_version '{http_version}'") from None
+
+
+def verify_peercert_fingerprint(
+    peercert: bytes, pinned_cert: typing.Tuple[str, str]
+) -> None:
+    """Checks the fingerprint of a certificate. Raises an exception
+    if the pinned cert doesn't match the presented cert.
+    """
+    host, expected_fingerprint = pinned_cert
+    expected_fingerprint = binascii.unhexlify(expected_fingerprint.replace(":", ""))
+    algos: typing.Dict[int, typing.Any] = {
+        16: hashlib.md5,
+        20: hashlib.sha1,
+        32: hashlib.sha256,
+    }
+    if len(expected_fingerprint) not in algos:
+        raise ValueError(f"unknown hash algorithm for fingerprint '{pinned_cert[1]}'")
+
+    actual_fingerprint = typing.cast(
+        bytes, algos[len(expected_fingerprint)](peercert).digest()
+    )
+
+    if not hmac.compare_digest(expected_fingerprint, actual_fingerprint):
+        raise CertificateFingerprintMismatch(
+            f"'{host}' presented certificate with fingerprint "
+            f"'{pretty_fingerprint(actual_fingerprint)}' but '{pretty_fingerprint(expected_fingerprint)}'"
+            f"was expected via 'pinned_certs=...'."
+        )
 
 
 class Retry:
