@@ -5,10 +5,15 @@ from .base import (
     AsyncBackend,
     AsyncSocket,
     AbortSendAndReceive,
-    is_readable,
+    is_writable,
     BlockedUntilNextRead,
 )
 from hip import utils
+from hip.models import (
+    sslsocket_version_to_tls_version,
+    alpn_to_http_version,
+    TLSVersion,
+)
 
 
 # XX support connect_timeout and read_timeout
@@ -38,6 +43,9 @@ class TrioBackend(AsyncBackend):
 
         return TrioSocket(stream)
 
+    async def spawn_system_task(self, task):
+        trio.hazmat.spawn_system_task(task)
+
     async def sleep(self, seconds: float) -> None:
         await trio.sleep(seconds)
 
@@ -62,8 +70,18 @@ class TrioSocket(AsyncSocket):
         await wrapped.do_handshake()
         return TrioSocket(wrapped)
 
-    def getpeercert(self, binary_form=False):
+    def getpeercert(self, binary_form: bool = False) -> typing.Union[bytes, dict]:
         return self._stream.getpeercert(binary_form=binary_form)
+
+    def http_version(self) -> typing.Optional[str]:
+        if not hasattr(self._stream, "selected_alpn_protocol"):
+            return None
+        return alpn_to_http_version(self._stream.selected_alpn_protocol())
+
+    def tls_version(self) -> typing.Optional[TLSVersion]:
+        if not hasattr(self._stream, "version"):
+            return None
+        return sslsocket_version_to_tls_version(self._stream.version())
 
     async def send_all(self, data: bytes) -> None:
         await self._stream.send_all(data)
@@ -110,8 +128,8 @@ class TrioSocket(AsyncSocket):
     def forceful_close(self) -> None:
         self._socket().close()
 
-    def is_readable(self) -> bool:
-        return is_readable(self._socket())
+    def is_connected(self) -> bool:
+        return is_writable(self._socket())
 
     # Pull out the underlying trio socket, because it turns out HTTP is not so
     # great at respecting abstraction boundaries.

@@ -114,7 +114,7 @@ class CertificateError(ConnectionError):
 
 class CertificateHostnameMismatch(CertificateError):
     """Certificate was valid but didn't have the correct
-    'subjectAltName' or 'commonName' (if no subjectAltName)
+    'subjectAltName' (or 'commonName' if no subjectAltName)
     """
 
 

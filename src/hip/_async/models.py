@@ -36,6 +36,24 @@ JSONType = typing.Union[
 ]
 
 
+def detect_is_async() -> typing.Union[typing.Literal[True], typing.Literal[False]]:
+    """Tests if we're in the async part of the code or not"""
+
+    async def f():
+        """Unasync transforms async functions in sync functions"""
+        return None
+
+    obj = f()
+    if obj is None:
+        return typing.cast(typing.Literal[False], False)
+    else:
+        obj.close()  # prevent un-awaited coroutine warning
+        return typing.cast(typing.Literal[True], True)
+
+
+IS_ASYNC = detect_is_async()
+
+
 class Response(BaseResponse):
     def __init__(
         self,
@@ -228,6 +246,10 @@ class Bytes(RequestData):
         return "application/octet-stream"
 
 
+class File(RequestData):
+    """Class representing a file-like interface"""
+
+
 def compact_json_dumps(obj: JSONType) -> str:
     """Function that doesn't add extra whitespace when encoding JSON"""
     return json.dumps(obj, separators=(",", ":"))
@@ -368,7 +390,7 @@ class MultipartForm(RequestData):
         for field in self._iter_fields():
             number_of_fields += 1
             field_size += await field.content_length()
-        return 6 + len(self.boundary)
+        return (6 + len(self.boundary)) * (number_of_fields + 1)
 
     async def data_chunks(self) -> typing.AsyncIterable[bytes]:
         boundary_bytes = self.boundary.encode()
@@ -385,7 +407,7 @@ class MultipartForm(RequestData):
     @property
     def boundary(self) -> str:
         if self._boundary is None:
-            self._boundary = binascii.hexlify(os.urandom(16))
+            self._boundary = binascii.hexlify(os.urandom(16)).decode()
         return self._boundary
 
     def _iter_fields(self) -> typing.Iterable[MultipartFormField]:

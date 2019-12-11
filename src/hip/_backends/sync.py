@@ -7,10 +7,15 @@ import time
 from .base import (
     AbortSendAndReceive,
     SocketOptionsType,
-    is_readable,
+    is_writable,
     BlockedUntilNextRead,
 )
 from .wait import wait_for_socket
+from hip.models import (
+    TLSVersion,
+    sslsocket_version_to_tls_version,
+    alpn_to_http_version,
+)
 from hip import utils
 
 
@@ -66,7 +71,7 @@ class SyncSocket(object):
         ...
 
     # Only for SSL-wrapped sockets
-    def getpeercert(self, binary_form=False) -> typing.Union[bytes, dict]:
+    def getpeercert(self, binary_form: bool = False) -> typing.Union[bytes, dict]:
         return self._sock.getpeercert(binary_form=binary_form)
 
     def _wait(
@@ -182,14 +187,21 @@ class SyncSocket(object):
         except AbortSendAndReceive:
             pass
 
+    def http_version(self) -> typing.Optional[str]:
+        if not hasattr(self._sock, "selected_alpn_protocol"):
+            return None
+        return alpn_to_http_version(self._sock.selected_alpn_protocol())
+
+    def tls_version(self) -> typing.Optional[TLSVersion]:
+        if not hasattr(self._sock, "version"):
+            return None
+        return sslsocket_version_to_tls_version(self._sock.version())
+
     def forceful_close(self) -> None:
         self._sock.close()
 
-    def is_readable(self) -> bool:
-        return is_readable(self._sock)
-
-    def _version(self) -> str:
-        return self._sock.version()
+    def is_connected(self) -> bool:
+        return is_writable(self._sock)
 
     def _getsockopt_tcp_nodelay(self) -> int:
         return self._sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY)

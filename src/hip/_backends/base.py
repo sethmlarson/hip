@@ -1,7 +1,8 @@
 import typing
 import ssl
 import socket
-from .wait import wait_for_read
+from .wait import wait_for_read, wait_for_write
+from hip.models import TLSVersion
 
 
 SocketOptionsType = typing.Iterable[typing.Tuple[int, int, int]]
@@ -19,6 +20,10 @@ def is_readable(sock: socket.socket) -> bool:
     return wait_for_read(sock, timeout=0)
 
 
+def is_writable(sock: socket.socket) -> bool:
+    return wait_for_write(sock, timeout=0)
+
+
 class AsyncBackend:
     async def connect(
         self,
@@ -31,6 +36,9 @@ class AsyncBackend:
             typing.Iterable[typing.Tuple[int, int, int]]
         ] = None
     ) -> "AsyncSocket":
+        ...
+
+    async def spawn_system_task(self, task: typing.Callable) -> None:
         ...
 
     async def sleep(self, seconds: float) -> None:
@@ -54,6 +62,12 @@ class AsyncSocket:
     def getpeercert(self, binary_form: bool = False) -> typing.Union[bytes, dict]:
         raise NotImplementedError()
 
+    def selected_alpn_protocol(self) -> typing.Optional[str]:
+        raise NotImplementedError()
+
+    def version(self) -> typing.Optional[str]:
+        raise NotImplementedError()
+
     async def send_all(self, data: bytes) -> None:
         raise NotImplementedError()
 
@@ -71,5 +85,11 @@ class AsyncSocket:
     def forceful_close(self) -> None:
         raise NotImplementedError()
 
-    def is_readable(self) -> bool:
+    def is_connected(self) -> bool:
+        raise NotImplementedError()
+
+    def http_version(self) -> typing.Optional[str]:
+        raise NotImplementedError()
+
+    def tls_version(self) -> typing.Optional[TLSVersion]:
         raise NotImplementedError()

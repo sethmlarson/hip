@@ -31,4 +31,18 @@ async def request(
     proxies: typing.Optional[ProxiesType] = None,
     http_versions: typing.Optional[typing.Sequence[str]] = None,
 ) -> Response:
-    return await Session().request(method, url)
+    return await Session().request(
+        method,
+        url,
+        headers=headers,
+        auth=auth,
+        cookies=cookies,
+        params=params,
+        data=data,
+        json=json,
+        retries=retries,
+        redirects=redirects,
+        timeout=timeout,
+        proxies=proxies,
+        http_versions=http_versions,
+    )

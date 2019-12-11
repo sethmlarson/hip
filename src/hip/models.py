@@ -454,6 +454,13 @@ class TLSVersion(enum.Enum):
     TLSv1_3 = "TLSv1.3"
     MAXIMUM_SUPPORTED = "MAXIMUM_SUPPORTED"
 
+    def resolve(self) -> "LiteralTLSVersionType":
+        if self == TLSVersion.MINIMUM_SUPPORTED:
+            return TLSVersion.TLSv1
+        elif self == TLSVersion.MAXIMUM_SUPPORTED:
+            return TLSVersion.TLSv1_3
+        return self
+
 
 # TLSVersion should be resolved to get rid of
 # 'MINIMUM_SUPPORTED' and 'MAXIMUM_SUPPORTED'
@@ -552,6 +559,30 @@ def http_version_to_alpn(http_version: str) -> typing.Optional[str]:
         return {"HTTP/2": "h2", "HTTP/1.1": "http/1.1", "HTTP/1.0": None,}[http_version]
     except KeyError:
         raise ValueError(f"unknown http_version '{http_version}'") from None
+
+
+def alpn_to_http_version(alpn: typing.Optional[str]) -> str:
+    try:
+        return {"h2": "HTTP/2", "http/1.1": "HTTP/1.1", None: "HTTP/1.1"}[alpn]
+    except KeyError:
+        raise ValueError(f"unknown alpn '{alpn}'") from None
+
+
+def sslsocket_version_to_tls_version(
+    version: typing.Optional[str],
+) -> typing.Optional[TLSVersion]:
+    if version is None:
+        return None
+    elif version == "TLSv1":
+        return TLSVersion.TLSv1
+    elif version == "TLSv1.1":
+        return TLSVersion.TLSv1_1
+    elif version == "TLSv1.2":
+        return TLSVersion.TLSv1_2
+    elif version == "TLSv1.3":
+        return TLSVersion.TLSv1_3
+    else:
+        raise ValueError(f"unknown tls versiom '{version}'")
 
 
 def verify_peercert_fingerprint(
@@ -661,11 +692,11 @@ class Retry:
 
     def reset_backoff_counter(self) -> None:
         """Callback that signals to the 'Retry' instance that an HTTP
-        redirect was performed and the '_back_to_back_errors' counter
-        should be reset to 0 so that back-offs don't continue to grow
+        redirect was performed and the '_backoff_counter' should
+        be reset to 0 so that back-offs don't continue to grow
         after a service successfully processes our request.
         This callback shouldn't be called when a redirect is returned
-        by to the caller, because it's basically a no-op in that case.
+        back to the caller, because it's basically a no-op in that case.
         """
         self._backoff_counter = 0
 

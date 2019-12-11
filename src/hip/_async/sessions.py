@@ -11,8 +11,7 @@ from .models import (
     NoData,
 )
 from .models import Response
-from .transaction import HTTP11Transaction
-from hip._backends import get_backend, AsyncBackend
+from .manager import ConnectionConfig, BackgroundManager
 from hip.models import (
     Request,
     ParamsType,
@@ -26,27 +25,7 @@ from hip.models import (
     PinnedCertsType,
     CookiesType,
     URLType,
-    create_ssl_context,
-    verify_peercert_fingerprint,
 )
-
-
-def detect_is_async() -> typing.Union[typing.Literal[True], typing.Literal[False]]:
-    """Tests if we're in the async part of the code or not"""
-
-    async def f():
-        """Unasync transforms async functions in sync functions"""
-        return None
-
-    obj = f()
-    if obj is None:
-        return typing.cast(typing.Literal[False], False)
-    else:
-        obj.close()  # prevent un-awaited coroutine warning
-        return typing.cast(typing.Literal[True], True)
-
-
-IS_ASYNC = detect_is_async()
 
 
 class Session:
@@ -71,9 +50,9 @@ class Session:
         trust_env: bool = True,
         ca_certs: typing.Optional[CACertsType] = certifi.where(),
         pinned_certs: typing.Optional[PinnedCertsType] = None,
-        tls_min_version: typing.Optional[TLSVersion] = TLSVersion.TLSv1_2,
-        tls_max_version: typing.Optional[TLSVersion] = TLSVersion.MAXIMUM_SUPPORTED,
-        http_versions: typing.Optional[typing.Sequence[str]] = ("HTTP/1.1",),
+        tls_min_version: TLSVersion = TLSVersion.TLSv1_2,
+        tls_max_version: TLSVersion = TLSVersion.MAXIMUM_SUPPORTED,
+        http_versions: typing.Sequence[str] = ("HTTP/1.1",),
     ):
         self.headers = headers
         self.auth = auth
@@ -88,6 +67,8 @@ class Session:
         self.tls_min_version = tls_min_version
         self.tls_max_version = tls_max_version
         self.http_versions = http_versions
+
+        self.manager = BackgroundManager()
 
     async def request(
         self,
@@ -137,31 +118,20 @@ class Session:
         request.headers.setdefault("accept", "*/*")
         request.headers.setdefault("user-agent", "python-hip/0")
 
-        backend = typing.cast(AsyncBackend, get_backend(IS_ASYNC))
-        scheme, host, port = request.url.origin
-        socket = await backend.connect(host, port, connect_timeout=10.0)
+        host = request.url.host
+        pinned_cert = self.pinned_certs.get(host, None)
+        if pinned_cert is not None:
+            pinned_cert = (host, pinned_cert)
 
-        if scheme == "https":
-            pinned_cert = self.pinned_certs.get(host, None)
-            if pinned_cert is not None:
-                pinned_cert = (host, pinned_cert)
-
-            ctx = create_ssl_context(
-                ca_certs=self.ca_certs,
-                pinned_cert=self.pinned_certs,
-                http_versions=self.http_versions,
-                tls_min_version=self.tls_min_version,
-                tls_max_version=self.tls_max_version,
-            )
-            socket = await socket.start_tls(server_hostname=host, ssl_context=ctx)
-
-            if pinned_cert:
-                verify_peercert_fingerprint(
-                    peercert=socket.getpeercert(binary_form=True),
-                    pinned_cert=pinned_cert,
-                )
-
-        transaction = HTTP11Transaction(socket)
+        conn_config = ConnectionConfig(
+            origin=request.url.origin,
+            http_versions=self.http_versions,
+            ca_certs=self.ca_certs,
+            pinned_cert=pinned_cert,
+            tls_min_version=self.tls_min_version.resolve(),
+            tls_max_version=self.tls_max_version.resolve(),
+        )
+        transaction = await self.manager.start_http_transaction(conn_config)
         resp = await transaction.send_request(
             request, (await request_data.data_chunks())
         )
@@ -209,4 +179,5 @@ class Session:
             return Bytes(data)
         elif isinstance(data, str):
             return Bytes(data.encode("utf-8"))
-        # TODO: File-like objects
+        elif hasattr(data, "read"):
+            return File(data)
