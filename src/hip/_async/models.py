@@ -3,15 +3,18 @@ import binascii
 import typing
 import json
 import chardet
+import filetype
 from hip.models import HeadersType, Request, Headers, Response as BaseResponse
-from hip.utils import INT_TO_URLENC, encoding_detector
+from hip.utils import INT_TO_URLENC, encoding_detector, TextChunker, BytesChunker
+from hip import utils
 
+AsyncAuthType = typing.Callable[[Request], typing.Awaitable[Request]]
+SyncAuthType = typing.Callable[[Request], Request]
 
 AuthType = typing.Union[
     typing.Tuple[typing.Union[str, bytes], typing.Union[str, bytes]],
     typing.Callable[[Request], Request],
-    # unasync needs to change typing.Awaitable[X] -> X
-    typing.Callable[[Request], typing.Awaitable[Request]],
+    AsyncAuthType,
 ]
 CookiesType = typing.Union[
     typing.Mapping[str, str], "Cookies",
@@ -22,7 +25,6 @@ DataType = typing.Union[
     typing.TextIO,
     "RequestData",
     typing.Iterable[typing.Union[str, bytes]],
-    # This needs to get unasync-ed into 'typing.Iterable[typing.Union[str, bytes]]'
     typing.AsyncIterable[typing.Union[str, bytes]],
 ]
 JSONType = typing.Union[
@@ -34,6 +36,13 @@ JSONType = typing.Union[
     float,
     None,
 ]
+
+RetType = typing.TypeVar("RetType")
+AsyncCallable = typing.Union[
+    typing.Callable[[typing.Any], RetType],
+    typing.Callable[[typing.Any], typing.Awaitable[RetType]],
+]
+SyncCallable = typing.Callable[[typing.Any], RetType]
 
 
 def detect_is_async() -> typing.Union[typing.Literal[True], typing.Literal[False]]:
@@ -91,6 +100,7 @@ class Response(BaseResponse):
             else:
                 detector = None
 
+            chunker = BytesChunker(chunk_size)
             received_data = 0
             async for chunk in self._raw_data:
                 # Feed data into detector until we get a result.
@@ -103,7 +113,11 @@ class Response(BaseResponse):
                         self._encoding = detector.result["encoding"] or "utf-8"
                         detector = None
 
-                yield chunk
+                for data in chunker.feed(chunk):
+                    yield data
+
+            for data in chunker.flush():
+                yield data
 
             # If we didn't receive any data then our encoding is 'ascii'
             # and if we did receive data and are still stumped use 'utf-8'.
@@ -129,21 +143,35 @@ class Response(BaseResponse):
         """
         buffer = bytearray()
         buffer_flushed = False
+        chunker: typing.Optional[TextChunker] = None
 
         async def stream_gen() -> typing.AsyncIterable[str]:
-            nonlocal buffer, buffer_flushed
+            nonlocal buffer, buffer_flushed, chunker
             async for chunk in self.stream():
                 if self._encoding is None:
                     buffer += chunk
                 else:
+                    if chunker is None:
+                        chunker = TextChunker(
+                            encoding=self._encoding, chunk_size=chunk_size
+                        )
                     if not buffer_flushed:
                         buffer_flushed = True
                         if len(buffer):
-                            yield bytes(buffer).decode(self._encoding)
-                    yield chunk.decode(self._encoding)
+                            for data in chunker.feed(bytes(buffer)):
+                                yield data
+                    for data in chunker.feed(chunk):
+                        yield data
 
-            if not buffer_flushed:
-                yield bytes(buffer).decode(self._encoding)
+            if chunker is None:
+                chunker = TextChunker(encoding=self._encoding, chunk_size=chunk_size)
+
+            if not buffer_flushed and len(buffer):
+                for data in chunker.feed(bytes(buffer)):
+                    yield data
+
+            for data in chunker.flush():
+                yield data
 
         return stream_gen().__aiter__()
 
@@ -167,6 +195,8 @@ class Response(BaseResponse):
 
     async def close(self) -> None:
         """Flushes the response body and puts the connection back into the pool"""
+        async for _ in self._raw_data:
+            pass
 
     async def __aenter__(self) -> "AsyncResponse":
         return self
@@ -248,6 +278,61 @@ class Bytes(RequestData):
 
 class File(RequestData):
     """Class representing a file-like interface"""
+
+    def __init__(self, fp: typing.BinaryIO):
+        self._fp = fp
+        self._content_type: typing.Optional[str]
+        # Initial location of the file pointer before data
+        # transmission starts.
+        self._fp_begin: typing.Optional[int] = None
+        self._fp_end: typing.Optional[int] = None
+
+    async def content_type(self) -> typing.Optional[str]:
+        if not self._fp_seekable():
+            return None
+        if not hasattr(self, "_content_type"):
+            data = await self._fp_read(utils.CHUNK_SIZE)
+            self._content_type = filetype.guess(data)
+        return self._content_type
+
+    async def content_length(self) -> typing.Optional[int]:
+        return (await self._get_fp_end()) - (await self._get_fp_begin())
+
+    async def data_chunks(self) -> typing.AsyncIterator[bytes]:
+        async def _inner() -> typing.AsyncIterable[bytes]:
+            data = await self._fp_read(utils.CHUNK_SIZE)
+            while data:
+                yield data
+                data = await self._fp_read(utils.CHUNK_SIZE)
+
+        self._fp.seek(await self._get_fp_begin(), 0)
+        return _inner().__aiter__()
+
+    async def _get_fp_begin(self) -> int:
+        if self._fp_begin is None:
+            self._fp_begin = self._fp.tell()
+        return self._fp_begin
+
+    async def _get_fp_end(self) -> int:
+        if self._fp_end is None:
+            fp_begin = await self._get_fp_begin()
+            self._fp.seek(0, 2)
+            self._fp_end = self._fp.tell()
+            self._fp.seek(fp_begin, 0)
+        return self._fp_end
+
+    async def _fp_tell(self) -> int:
+        return await sync_or_async(self._fp.tell)
+
+    async def _fp_seek(self, offset: int, whence: int) -> None:
+        await sync_or_async(self._fp.seek, offset, whence)
+
+    async def _fp_read(self, nbytes: int) -> bytes:
+        if IS_ASYNC:
+            read = getattr(self._fp, "aread", self._fp.read)
+        else:
+            read = self._fp.read
+        return await sync_or_async(read, nbytes)
 
 
 def compact_json_dumps(obj: JSONType) -> str:
@@ -412,3 +497,12 @@ class MultipartForm(RequestData):
 
     def _iter_fields(self) -> typing.Iterable[MultipartFormField]:
         ...
+
+
+async def sync_or_async(
+    f: AsyncCallable, *args: typing.Any, **kwargs: typing.Any
+) -> RetType:
+    ret = f(*args, **kwargs)
+    if IS_ASYNC and hasattr(ret, "__await__"):
+        ret = await ret
+    return ret

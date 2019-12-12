@@ -1,3 +1,6 @@
+import ssl
+import socket
+import contextlib
 import typing
 from hip.models import (
     Origin,
@@ -6,8 +9,14 @@ from hip.models import (
     create_ssl_context,
     verify_peercert_fingerprint,
 )
+from hip.exceptions import (
+    NameResolutionError,
+    TLSError,
+    TLSVersionNotSupported,
+    CertificateError,
+)
 from hip._backends import get_backend, AsyncBackend, AsyncSocket
-from .models import Response, IS_ASYNC
+from .models import IS_ASYNC
 from .http1 import HTTPTransaction, HTTP11Transaction
 
 
@@ -53,8 +62,9 @@ class BackgroundManager:
     async def start_http_transaction(
         self, conn_config: ConnectionConfig
     ) -> HTTPTransaction:
-        socket = await self._get_socket(conn_config)
-        return HTTP11Transaction(socket)
+        with self._wrap_exceptions(conn_config):
+            socket = await self._get_socket(conn_config)
+            return HTTP11Transaction(socket)
 
     async def _get_socket(self, conn_config: ConnectionConfig) -> AsyncSocket:
         socket = None
@@ -104,3 +114,13 @@ class BackgroundManager:
         )
         self.pool[conn_key] = socket
         return socket
+
+    @contextlib.contextmanager
+    def _wrap_exceptions(self, conn_config: ConnectionConfig):
+        scheme, host, port = conn_config.origin
+        try:
+            yield
+        except socket.gaierror as e:
+            raise NameResolutionError(
+                f"could not resolve hostname '{host}:{port}'", error=e
+            )

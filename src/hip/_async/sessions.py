@@ -114,10 +114,6 @@ class Session:
         if content_type is not None:
             request.headers.setdefault("content-type", content_type)
 
-        request.headers.setdefault("host", request.url.host)
-        request.headers.setdefault("accept", "*/*")
-        request.headers.setdefault("user-agent", "python-hip/0")
-
         host = request.url.host
         pinned_cert = self.pinned_certs.get(host, None)
         if pinned_cert is not None:
@@ -160,6 +156,10 @@ class Session:
         if auth:
             request = auth(request)
 
+        request.headers.setdefault("host", request.url.host)
+        request.headers.setdefault("accept", "*/*")
+        request.headers.setdefault("user-agent", "python-hip/0")
+        request.headers.setdefault("connection", "keep-alive")
         return request
 
     def prepare_data(self, data: DataType = None, json: JSONType = None) -> RequestData:

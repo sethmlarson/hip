@@ -10,6 +10,7 @@ async def main():
     for _ in range(50):
         url = hip.URL(scheme="https", host="httpbin.org", port=443, path="/bytes/10000")
         resp = await http.request("GET", url)
+        print(resp.status_code)
         await resp.close()
 
         #print(resp.status_code)

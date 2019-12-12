@@ -1,3 +1,4 @@
+import contextlib
 import h11
 import typing
 from .models import Response
@@ -136,7 +137,7 @@ class HTTP11Transaction(HTTPTransaction):
         while not response_ended or not request_ended:
             try:
                 await self.socket.send_and_receive_for_a_while(
-                    produce_bytes, consume_bytes, 1.0
+                    produce_bytes, consume_bytes, 10.0
                 )
             except AbortSendAndReceive:
                 yield get_response_data()

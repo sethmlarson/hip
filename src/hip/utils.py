@@ -112,3 +112,42 @@ def pretty_fingerprint(fingerprint: typing.Union[bytes, str]) -> str:
 
 def none_is_inf(value: typing.Optional[float]) -> float:
     return float("inf") if value is None else value
+
+
+class BytesChunker:
+    """Divides a stream of bytes into chunks"""
+
+    def __init__(self, chunk_size: typing.Optional[int]):
+        self.chunk_size = chunk_size
+        self.byte_buffer = bytearray()
+
+    def feed(self, data: bytes) -> typing.Iterable[bytes]:
+        if self.chunk_size is None:
+            return (data,)
+        # TODO: Implement chunk_size
+
+    def flush(self) -> typing.Iterable[bytes]:
+        if self.chunk_size is None:
+            return ()
+        # TODO: Implement chunk_size
+
+
+class TextChunker:
+    """Decodes and divides a stream of bytes into chunks of text"""
+
+    def __init__(self, encoding: str, chunk_size: typing.Optional[int]):
+        self.encoding = encoding
+        self.chunk_size = chunk_size
+
+        self.string_buffer = ""
+        self.byte_buffer = bytearray()
+
+    def feed(self, data: bytes) -> typing.Iterable[str]:
+        if self.chunk_size is None:
+            return (data.decode(self.encoding),)
+        # TODO: Implement chunk_size
+
+    def flush(self) -> typing.Iterable[str]:
+        if self.chunk_size is None:
+            return ()
+        # TODO: Implement chunk_size
