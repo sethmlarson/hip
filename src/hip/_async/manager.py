@@ -37,9 +37,14 @@ class ConnectionConfig(typing.NamedTuple):
                 self.ca_certs == conn_key.ca_certs,
                 self.pinned_cert == conn_key.pinned_cert,
                 conn_key.http_version in self.http_versions,
-                self.tls_min_version.value
-                <= conn_key.tls_version.value
-                <= self.tls_max_version.value,
+                (
+                    conn_key.tls_version is None
+                    or (
+                        self.tls_min_version.value
+                        <= conn_key.tls_version.value
+                        <= self.tls_max_version.value,
+                    )
+                ),
             )
         )
 

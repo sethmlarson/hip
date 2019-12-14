@@ -8,8 +8,9 @@ import codecs
 import pathlib
 import hmac
 import hashlib
+from urllib.parse import urljoin, urlparse
 from .utils import parse_mimetype, is_known_encoding, pretty_fingerprint, none_is_inf
-from .exceptions import HTTPError, CertificateFingerprintMismatch
+from .exceptions import HTTPError, URLError, CertificateFingerprintMismatch
 
 
 PathType = typing.Union[str, pathlib.Path]
@@ -102,6 +103,37 @@ class URL:
         params: typing.Optional[typing.Any] = None,
         fragment: typing.Optional[str] = None,
     ):
+        if url is not None:
+            # Ensure that if a user is passing in a URL
+            # as a positional argument that no keyword
+            # args are used.
+            if any(
+                x is not None
+                for x in (
+                    scheme,
+                    username,
+                    password,
+                    host,
+                    port,
+                    path,
+                    params,
+                    fragment,
+                )
+            ):
+                raise URLError(
+                    "Can't pass URL to parse and key-word arguments to 'URL' class"
+                )
+
+            url = URL.parse(url)
+            scheme = url.scheme
+            username = url.username
+            password = url.password
+            host = url.host
+            port = url.port
+            path = url.path
+            params = url.params
+            fragment = url.fragment
+
         self.scheme = scheme
         self.username = username
         self.password = password
@@ -114,17 +146,109 @@ class URL:
     @property
     def origin(self) -> Origin:
         if self.scheme is None or self.host is None:
-            raise HTTPError("Origin cannot be determined for non-absolute URLs")
+            raise URLError("Origin cannot be determined for relative URLs")
         if self.port is None:
             if self.scheme not in self.DEFAULT_PORT_BY_SCHEME:
-                raise HTTPError(f"Unknown default port for scheme '{self.scheme}'")
+                raise URLError(f"Unknown default port for scheme '{self.scheme}'")
             port = self.DEFAULT_PORT_BY_SCHEME[self.scheme]
         else:
             port = self.port
         return Origin(self.scheme, self.host, port)
 
     def join(self, url: URLType) -> "URL":
-        ...
+        if isinstance(url, URL):
+            url = str(url)
+        return URL.parse(urljoin(str(self), url))
+
+    @classmethod
+    def parse(cls, url: URLType) -> "URL":
+        if isinstance(url, URL):
+            return url
+        parsed = urlparse(url)
+        return URL(
+            scheme=parsed.scheme,
+            username=parsed.username,
+            password=parsed.password,
+            host=parsed.hostname,
+            port=parsed.port,
+            path=parsed.path,
+            params=parsed.params,
+            fragment=parsed.fragment,
+        )
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, (str, URL)):
+            return NotImplemented
+        elif isinstance(other, str):
+            return self == URL.parse(other)
+        return (
+            self.scheme == other.scheme
+            and self.username == other.username
+            and self.password == other.password
+            and self.host == other.host
+            and self.port == other.port
+            and self.path == other.path
+            and self.params == other.params
+            and self.fragment == other.fragment
+        )
+
+    def __ne__(self, other: object) -> bool:
+        if not isinstance(other, (str, URL)):
+            return NotImplemented
+        elif isinstance(other, str):
+            return not self == URL.parse(other)
+        return not self == other
+
+    def __hash__(self) -> int:
+        return hash(
+            (
+                self.scheme,
+                self.username,
+                self.password,
+                self.host,
+                self.port,
+                self.path,
+                self.params,
+                self.fragment,
+            )
+        )
+
+    def __str__(self) -> str:
+        parts = [f"{self.scheme}:"]
+        if self.host is not None:
+            parts.append("//")
+            if self.username is not None or self.password is not None:
+                parts.append(self.username or "")
+                if self.password is not None:
+                    parts.append(f":{self.password}")
+                parts.append("@")
+            parts.append(self.host)
+            if self.port is not None:
+                parts.append(f":{self.port}")
+        if self.path is not None:
+            parts.append(self.path)
+        if self.params is not None:
+            parts.append(f"?{self.params}")
+        if self.fragment is not None:
+            parts.append(f"#{self.fragment}")
+        return "".join(parts)
+
+    def __repr__(self) -> str:
+        parts = ["URL"] + [
+            f"{k}={v!r}"
+            for k, v in (
+                ("scheme", self.scheme),
+                ("username", self.username),
+                ("password", self.password),
+                ("host", self.host),
+                ("port", self.port),
+                ("path", self.path),
+                ("params", self.params),
+                ("fragment", self.fragment),
+            )
+            if v is not None
+        ]
+        return f"<{' '.join(parts)}>"
 
 
 KT = typing.TypeVar("KT")
@@ -207,6 +331,9 @@ class MultiMapping(typing.Generic[KT, VT, NormKT, NormVT]):
                 self._normalize_key(key), [(key, self._normalize_value(value))]
             )
         ]
+
+    def copy(self):
+        return type(self)([(k, v) for k, v in self.items()])
 
     def __contains__(self, item: KT) -> bool:
         return bool(self._internal.get(self._normalize_key(item), None))

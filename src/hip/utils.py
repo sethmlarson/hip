@@ -151,3 +151,9 @@ class TextChunker:
         if self.chunk_size is None:
             return ()
         # TODO: Implement chunk_size
+
+
+def user_agent() -> str:
+    from hip import __version__
+
+    return f"python-hip/{__version__}"

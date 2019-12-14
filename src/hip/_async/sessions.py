@@ -9,6 +9,7 @@ from .models import (
     DataType,
     Bytes,
     NoData,
+    sync_or_async,
 )
 from .models import Response
 from .manager import ConnectionConfig, BackgroundManager
@@ -25,7 +26,11 @@ from hip.models import (
     PinnedCertsType,
     CookiesType,
     URLType,
+    URL,
+    Response as BaseResponse,
 )
+from hip.exceptions import RedirectLoopDetected, TooManyRedirects, HipError
+from hip.utils import user_agent
 
 
 class Session:
@@ -44,7 +49,7 @@ class Session:
         headers: typing.Optional[HeadersType] = None,
         auth: typing.Optional[AuthType] = None,
         retries: typing.Optional[RetriesType] = None,
-        redirects: typing.Optional[RedirectsType] = None,
+        redirects: typing.Optional[RedirectsType] = True,
         timeout: typing.Optional[TimeoutType] = None,
         proxies: typing.Optional[ProxiesType] = None,
         trust_env: bool = True,
@@ -101,42 +106,110 @@ class Session:
             cookies=cookies,
             params=params,
         )
+
+        if auth:
+            request = await sync_or_async(auth, request)
+
         request_data = self.prepare_data(data=data, json=json)
 
-        # Set the framing headers
-        content_length = await request_data.content_length()
-        if content_length is None:
-            request.headers.setdefault("transfer-encoding", "chunked")
-        else:
-            request.headers.setdefault("content-length", str(content_length))
+        # Set the framing headers if they haven't been set yet.
+        if (
+            "transfer-encoding" not in request.headers
+            and "content-length" not in request.headers
+        ):
+            content_length = await request_data.content_length()
+            if content_length is None:
+                request.headers.setdefault("transfer-encoding", "chunked")
+            else:
+                request.headers.setdefault("content-length", str(content_length))
 
-        content_type = request_data.content_type
-        if content_type is not None:
-            request.headers.setdefault("content-type", content_type)
+        if "content-type" not in request.headers:
+            request.headers.setdefault("content-type", request_data.content_type)
 
-        host = request.url.host
-        pinned_cert = self.pinned_certs.get(host, None)
-        if pinned_cert is not None:
-            pinned_cert = (host, pinned_cert)
+        response_history: typing.List[BaseResponse] = []
+        visited_urls = {request.url}
+        while True:
 
-        conn_config = ConnectionConfig(
-            origin=request.url.origin,
-            http_versions=self.http_versions,
-            ca_certs=self.ca_certs,
-            pinned_cert=pinned_cert,
-            tls_min_version=self.tls_min_version.resolve(),
-            tls_max_version=self.tls_max_version.resolve(),
-        )
-        transaction = await self.manager.start_http_transaction(conn_config)
-        resp = await transaction.send_request(
-            request, (await request_data.data_chunks())
-        )
-        return resp
+            # This section doesn't have a response associated with it
+            # so we only add the Request to the potential HipError.
+            try:
+                host = request.url.host
+                pinned_cert = self.pinned_certs.get(host, None)
+                if pinned_cert is not None:
+                    pinned_cert = (host, pinned_cert)
+
+                conn_config = ConnectionConfig(
+                    origin=request.url.origin,
+                    http_versions=self.http_versions,
+                    ca_certs=self.ca_certs,
+                    pinned_cert=pinned_cert,
+                    tls_min_version=self.tls_min_version.resolve(),
+                    tls_max_version=self.tls_max_version.resolve(),
+                )
+                transaction = await self.manager.start_http_transaction(conn_config)
+
+                resp = await transaction.send_request(
+                    request, (await request_data.data_chunks())
+                )
+                response_history.extend(resp.history)
+            except HipError as e:
+                e.request = request
+                raise
+
+            # By this point we've received a response so we
+            # add that to any potential exceptions too.
+            try:
+                resp.history = response_history
+
+                if redirects is not False and resp.is_redirect:
+                    # This redirect is not the final response
+                    # so we add it to the history.
+                    response_history.append(
+                        BaseResponse(
+                            status_code=resp.status_code,
+                            http_version=resp.http_version,
+                            headers=resp.headers.copy(),
+                            request=resp.request,
+                        )
+                    )
+                    if isinstance(redirects, int):
+                        if redirects == 0:
+                            raise TooManyRedirects("too many redirects")
+                        redirects -= 1
+
+                    # Detect when we've already been redirected to a URL before
+                    # and if we're redirected again then complain.
+                    redirect_request = self.prepare_redirect(request, resp)
+                    if redirect_request.url in visited_urls:
+                        # Create a list of URLs that we visited to reach this loop
+                        # to display to the user.
+                        redirected_urls = [
+                            str(x.request.url)
+                            for x in response_history
+                            if x.is_redirect
+                        ] + [str(redirect_request.url)]
+                        raise RedirectLoopDetected(
+                            f"redirect loop detected for {' -> '.join(redirected_urls)}"
+                        )
+                    visited_urls.add(redirect_request.url)
+
+                    request = redirect_request
+                    continue
+
+            except HipError as e:
+                if e.request is None:
+                    e.request = request
+                if e.response is None:
+                    e.response = resp
+                raise
+
+            resp.history = response_history
+            return resp
 
     def prepare_request(
         self,
         method: str,
-        url: str,
+        url: URL,
         headers: typing.Optional[HeadersType] = None,
         auth: typing.Optional[AuthType] = None,
         cookies: typing.Optional[CookiesType] = None,
@@ -153,13 +226,22 @@ class Session:
         People seem to understand this merging strategy.
         """
         request = Request(method=method, url=url, headers=headers)
-        if auth:
-            request = auth(request)
 
-        request.headers.setdefault("host", request.url.host)
+        if "host" not in request.headers:
+            request_host = request.url.host
+            request_port = request.url.port
+            if (
+                request_port is not None
+                and request_port
+                != request.url.DEFAULT_PORT_BY_SCHEME.get(request.url.scheme, None)
+            ):
+                request_host += f":{request_port}"
+            request.headers["host"] = request_host
+
         request.headers.setdefault("accept", "*/*")
-        request.headers.setdefault("user-agent", "python-hip/0")
+        request.headers.setdefault("user-agent", user_agent())
         request.headers.setdefault("connection", "keep-alive")
+
         return request
 
     def prepare_data(self, data: DataType = None, json: JSONType = None) -> RequestData:
@@ -181,3 +263,30 @@ class Session:
             return Bytes(data.encode("utf-8"))
         elif hasattr(data, "read"):
             return File(data)
+
+    def prepare_redirect(self, request: Request, response: Response) -> Request:
+        """Applies the redirect to a request. This includes stripping insecure headers
+        if the request is cross-origin and mutating the request method.
+        """
+        new_request = self.prepare_request(
+            method=request.method,
+            url=request.url.join(response.headers["location"]),
+            headers=request.headers.copy(),
+        )
+
+        # Follow what browsers do. 301, 302, and 303 convert POST -> GET
+        if 301 <= response.status_code <= 303 and request.method == "POST":
+            new_request.method = "GET"
+
+        # Remove 'Authorization' header if origin changes (except for HTTP->HTTPS upgrades)
+        if request.url.origin != new_request.url.origin:
+            old_scheme, old_host, old_port = request.url.origin
+            new_scheme, new_host, new_port = new_request.url.origin
+            if not (
+                old_scheme == "http"
+                and new_scheme == "https"
+                and (new_port == old_port or (new_port == 443 and old_port == 80))
+            ):
+                new_request.headers.pop_all("authorization")
+
+        return new_request

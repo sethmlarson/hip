@@ -160,7 +160,7 @@ def _request_to_h11_event(request: Request) -> h11.Request:
     # Put the 'Host' header first in the request as it's required.
     h11_headers = [(b"host", request.headers["host"].encode())]
     for k, v in request.headers.items():
-        if k.lower() != "host":
+        if k.lower() != "host" and v is not None:
             h11_headers.append((k.encode(), v.encode()))
     return h11.Request(
         method=request.method.encode(),
