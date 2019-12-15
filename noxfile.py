@@ -2,9 +2,11 @@ from xml.etree import ElementTree as ET
 import os
 import re
 import shutil
-import sys
 
 import nox
+
+
+source_code = ("src/", "tests/", "docs/", "setup.py", "noxfile.py")
 
 
 def _clean_coverage(coverage_path):
@@ -16,18 +18,16 @@ def _clean_coverage(coverage_path):
     input_xml.write(coverage_path, xml_declaration=True)
 
 
-def tests_impl(session, extras="socks,secure,brotli"):
+def tests_impl(session):
     # Install deps and the package itself.
     session.install("-r", "dev-requirements.txt")
-    session.install(".[{extras}]".format(extras=extras))
+    session.install(".")
 
     # Show the pip version.
     session.run("pip", "--version")
     # Print the Python version and bytesize.
     session.run("python", "--version")
     session.run("python", "-c", "import struct; print(struct.calcsize('P') * 8)")
-    # Print OpenSSL information.
-    session.run("python", "-m", "OpenSSL.debug")
 
     session.run(
         "pytest",
@@ -43,25 +43,16 @@ def tests_impl(session, extras="socks,secure,brotli"):
     _clean_coverage("coverage.xml")
 
 
-@nox.session(python=["2.7", "3.5", "3.6", "3.7", "3.8", "pypy"])
+@nox.session(python=["3.6", "3.7", "3.8"])
 def test(session):
     tests_impl(session)
-
-
-@nox.session(python=["2", "3"])
-def google_brotli(session):
-    # https://pypi.org/project/Brotli/ is the Google version of brotli, so
-    # install it separately and don't install our brotli extra (which installs
-    # brotlipy).
-    session.install("brotli")
-    tests_impl(session, extras="socks,secure")
 
 
 @nox.session()
 def blacken(session):
     """Run black code formatter."""
     session.install("black")
-    session.run("black", "src", "dummyserver", "test", "noxfile.py", "setup.py")
+    session.run("black", *source_code)
 
     lint(session)
 
@@ -71,16 +62,13 @@ def lint(session):
     session.install("flake8", "black")
     session.run("flake8", "--version")
     session.run("black", "--version")
-    session.run(
-        "black", "--check", "src", "dummyserver", "test", "noxfile.py", "setup.py"
-    )
-    session.run("flake8", "setup.py", "docs", "dummyserver", "src", "test")
+    session.run("black", "--check", *source_code)
+    session.run("flake8", *source_code)
 
 
 @nox.session
 def docs(session):
     session.install("-r", "docs/requirements.txt")
-    session.install(".[socks,secure,brotli]")
 
     session.chdir("docs")
     if os.path.exists("_build"):

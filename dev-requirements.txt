@@ -8,20 +8,8 @@ pytest==4.6.6
 pytest-random-order==1.0.4;python_version>="3.6"
 pytest-timeout==1.3.3
 pytest-cov==2.7.1
+pytest-trio==0.5.2
 h11==0.8.0
 cryptography==2.8
 flaky==3.6.1
 trustme==0.5.3
-
-# https://github.com/GoogleCloudPlatform/python-repo-tools/issues/23
-pylint<2.0;python_version<="2.7"
-gcp-devrel-py-tools
-
-# optional dependencies, only intended for use with Python 3.6+
-trio==0.13.0; python_version >= "3.6"
-anyio[curio]==1.2.0; python_version >= "3.6"
-pytest-trio==0.5.2;python_version>="3.6"
-# https://github.com/mhammond/pywin32/issues/1439
-pywin32!=226; python_version >= "3.6" and os_name == 'nt'
-twisted[tls]==19.2.0; python_version >= "3.6" and os_name != 'nt'
-twisted[tls,windows_platform]==19.2.0; python_version >= "3.6" and os_name == 'nt'

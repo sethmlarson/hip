@@ -167,13 +167,13 @@ class URL:
         parsed = urlparse(url)
         return URL(
             scheme=parsed.scheme,
-            username=parsed.username,
-            password=parsed.password,
+            username=parsed.username or None,
+            password=parsed.password or None,
             host=parsed.hostname,
             port=parsed.port,
-            path=parsed.path,
-            params=parsed.params,
-            fragment=parsed.fragment,
+            path=parsed.path or None,
+            params=parsed.params or None,
+            fragment=parsed.fragment or None,
         )
 
     def __eq__(self, other: object) -> bool:
@@ -503,7 +503,9 @@ class Response:
             values = self.headers.get_all("content-length")
             if len(set(values)) == 1 and values[0].isdigit():
                 return int(values[0])
-        return None
+        if self.headers.get("transfer-encoding", None) == "chunked":
+            return None
+        return 0
 
     @property
     def is_redirect(self) -> bool:
@@ -683,7 +685,7 @@ def http_version_to_alpn(http_version: str) -> typing.Optional[str]:
     a corresponding ALPN protocol identifier then return 'None'.
     """
     try:
-        return {"HTTP/2": "h2", "HTTP/1.1": "http/1.1", "HTTP/1.0": None,}[http_version]
+        return {"HTTP/2": "h2", "HTTP/1.1": "http/1.1", "HTTP/1.0": None}[http_version]
     except KeyError:
         raise ValueError(f"unknown http_version '{http_version}'") from None
 

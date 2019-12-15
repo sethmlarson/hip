@@ -108,18 +108,23 @@ class TrioSocket(AsyncSocket):
                     break
                 await self._stream.send_all(outgoing)
 
-        async def receiver():
+        async def receiver(read_timeout: float) -> None:
             nonlocal bytes_read
             while True:
-                incoming = await self._stream.receive_some(utils.CHUNK_SIZE)
+                incoming = None
+                with trio.move_on_after(read_timeout):
+                    incoming = await self._stream.receive_some(utils.CHUNK_SIZE)
                 if incoming:
                     bytes_read.set()
+                else:
+                    break
+
                 consume_bytes(incoming)
 
         try:
             async with trio.open_nursery() as nursery:
                 nursery.start_soon(sender)
-                nursery.start_soon(receiver)
+                nursery.start_soon(receiver, read_timeout)
         except AbortSendAndReceive:
             pass
 

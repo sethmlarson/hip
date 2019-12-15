@@ -198,7 +198,7 @@ class Response(BaseResponse):
         async for _ in self._raw_data:
             pass
 
-    async def __aenter__(self) -> "AsyncResponse":
+    async def __aenter__(self) -> "Response":
         return self
 
     async def __aexit__(self, *_: typing.Any) -> None:

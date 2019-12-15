@@ -12,7 +12,6 @@ from hip.models import (
 from hip.exceptions import (
     NameResolutionError,
     TLSError,
-    TLSVersionNotSupported,
     CertificateError,
 )
 from hip._backends import get_backend, AsyncBackend, AsyncSocket
@@ -42,7 +41,7 @@ class ConnectionConfig(typing.NamedTuple):
                     or (
                         self.tls_min_version.value
                         <= conn_key.tls_version.value
-                        <= self.tls_max_version.value,
+                        <= self.tls_max_version.value
                     )
                 ),
             )
@@ -82,6 +81,7 @@ class BackgroundManager:
                     socket = sock
                     break
 
+        # Drop all the connections that are defunct.
         for conn_key in to_pop:
             self.pool.pop(conn_key)
 
@@ -108,7 +108,7 @@ class BackgroundManager:
                     pinned_cert=conn_config.pinned_cert,
                 )
 
-        http_version = socket.http_version()
+        http_version = socket.http_version() or "HTTP/1.1"
         tls_version = socket.tls_version()
         conn_key = ConnectionKey(
             conn_config.origin,
@@ -129,3 +129,7 @@ class BackgroundManager:
             raise NameResolutionError(
                 f"could not resolve hostname '{host}:{port}'", error=e
             )
+        except ssl.CertificateError as e:
+            raise CertificateError(message=str(e), error=e)
+        except ssl.SSLError as e:
+            raise TLSError(message=e.strerror, error=e)

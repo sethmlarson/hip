@@ -1,4 +1,3 @@
-import contextlib
 import h11
 import typing
 from .models import Response
@@ -41,6 +40,9 @@ class HTTP11Transaction(HTTPTransaction):
                 data = await _iter_next(request_data)
                 data_to_send = self.h11.send(h11.Data(data=data))
                 return data_to_send
+
+            # We explicitly don't 'end' the request here because that
+            # is handled in one place, in receive_response_data() below.
             except StopAsyncIteration:
                 return None
 
@@ -75,8 +77,9 @@ class HTTP11Transaction(HTTPTransaction):
 
                 event = self.h11.next_event()
 
+        # Starts sending request data while waiting for a response back.
         await self.socket.send_and_receive_for_a_while(
-            produce_bytes, consume_bytes, 100.0
+            produce_bytes, consume_bytes, 10.0
         )
         return response
 
@@ -93,7 +96,7 @@ class HTTP11Transaction(HTTPTransaction):
             event = self.h11.next_event()
             while event is not h11.NEED_DATA:
                 if isinstance(event, h11.Data):
-                    response_data.append(event.data)
+                    response_data.append(bytes(event.data))
                 elif isinstance(event, h11.EndOfMessage):
                     response_ended = True
                 else:
@@ -119,22 +122,20 @@ class HTTP11Transaction(HTTPTransaction):
         async def produce_bytes() -> typing.Optional[bytes]:
             nonlocal request_ended
             if request_ended:
-                raise AbortSendAndReceive()
+                return None
             try:
                 data = await _iter_next(request_data)
                 return self.h11.send(h11.Data(data=data))
             except StopAsyncIteration:
                 request_ended = True
-                data = self.h11.send(h11.EndOfMessage())
-                if data:
-                    return data
-                raise AbortSendAndReceive()
+                return self.h11.send(h11.EndOfMessage()) or None
 
         def consume_bytes(data: bytes) -> None:
             self.h11.receive_data(data)
             process_response_data()
 
-        while not response_ended or not request_ended:
+        # Concurrently read response data and send request data.
+        while not response_ended:
             try:
                 await self.socket.send_and_receive_for_a_while(
                     produce_bytes, consume_bytes, 10.0
@@ -142,10 +143,11 @@ class HTTP11Transaction(HTTPTransaction):
             except AbortSendAndReceive:
                 yield get_response_data()
 
-        # Drain any last data from the queue.
-        data = get_response_data()
-        if data:
-            yield data
+        # If the request still hasn't finished sending then do that here.
+        while not request_ended:
+            data_to_send = await produce_bytes()
+            if data_to_send:
+                await self.socket.send_all(data_to_send)
 
         await self.close()
 

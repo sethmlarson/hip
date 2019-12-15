@@ -1,4 +1,5 @@
 import certifi
+import io
 import typing
 from .models import (
     JSON,
@@ -11,7 +12,7 @@ from .models import (
     NoData,
     sync_or_async,
 )
-from .models import Response
+from .models import Response, File
 from .manager import ConnectionConfig, BackgroundManager
 from hip.models import (
     Request,
@@ -98,6 +99,7 @@ class Session:
         ] = None,  # For now we only support HTTP/1.1.
     ) -> Response:
         """Sends a request."""
+        url = URL.parse(url)
         request = self.prepare_request(
             method=method,
             url=url,
@@ -151,7 +153,6 @@ class Session:
                 resp = await transaction.send_request(
                     request, (await request_data.data_chunks())
                 )
-                response_history.extend(resp.history)
             except HipError as e:
                 e.request = request
                 raise
@@ -159,7 +160,13 @@ class Session:
             # By this point we've received a response so we
             # add that to any potential exceptions too.
             try:
-                resp.history = response_history
+                # For now we add the individual responses' 1XX
+                # history to the global response_history and clear
+                # response.history. It'll be added back if this is
+                # actually the final response in the life-cycle
+                # after checking redirects / retries.
+                response_history.extend(resp.history)
+                resp.history = []
 
                 if redirects is not False and resp.is_redirect:
                     # This redirect is not the final response
@@ -176,6 +183,9 @@ class Session:
                         if redirects == 0:
                             raise TooManyRedirects("too many redirects")
                         redirects -= 1
+
+                    # Drain the response
+                    await resp.close()
 
                     # Detect when we've already been redirected to a URL before
                     # and if we're redirected again then complain.
@@ -203,6 +213,8 @@ class Session:
                     e.response = resp
                 raise
 
+            # This is actually the response we're returning to the user
+            # so add all the responses we've received before this one.
             resp.history = response_history
             return resp
 
@@ -261,7 +273,7 @@ class Session:
             return Bytes(data)
         elif isinstance(data, str):
             return Bytes(data.encode("utf-8"))
-        elif hasattr(data, "read"):
+        elif isinstance(data, io.BinaryIO) or hasattr(data, "read"):
             return File(data)
 
     def prepare_redirect(self, request: Request, response: Response) -> Request:

@@ -1,7 +1,7 @@
 import typing
 
 if typing.TYPE_CHECKING:
-    from .models import Request, Response
+    from .models import Request, Response  # noqa: F401
 
 
 class HipError(Exception):
