@@ -141,6 +141,8 @@ class HTTP11Transaction(HTTPTransaction):
                     produce_bytes, consume_bytes, 10.0
                 )
             except AbortSendAndReceive:
+                pass
+            finally:
                 yield get_response_data()
 
         # If the request still hasn't finished sending then do that here.

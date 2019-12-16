@@ -5,6 +5,7 @@ import json
 import chardet
 import filetype
 from hip.models import HeadersType, Request, Headers, Response as BaseResponse
+from hip.decoders import get_content_decoder
 from hip.utils import INT_TO_URLENC, encoding_detector, TextChunker, BytesChunker
 from hip import utils
 
@@ -75,6 +76,9 @@ class Response(BaseResponse):
         super().__init__(status_code, http_version, headers, request=request)
         self._raw_data = raw_data
         self._content: typing.List[bytes]
+        self._decoder = get_content_decoder(
+            self.headers.get("Content-Encoding", "identity")
+        )
 
     def stream(
         self, chunk_size: typing.Optional[int] = None
@@ -100,9 +104,22 @@ class Response(BaseResponse):
             else:
                 detector = None
 
+            async def decode_raw_data() -> typing.AsyncIterable[bytes]:
+                """Decodes the raw data if an encoding has been applied."""
+                decoder = get_content_decoder(
+                    self.headers.get("Content-Encoding", "identity")
+                )
+                async for chunk in self._raw_data:
+                    chunk = decoder.decompress(chunk)
+                    if chunk:
+                        yield chunk
+                chunk = decoder.flush()
+                if chunk:
+                    yield chunk
+
             chunker = BytesChunker(chunk_size)
             received_data = 0
-            async for chunk in self._raw_data:
+            async for chunk in decode_raw_data():
                 # Feed data into detector until we get a result.
                 received_data += len(chunk)
                 if detector:

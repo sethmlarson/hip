@@ -130,6 +130,7 @@ class SyncSocket(object):
                     except BlockedUntilNextRead:
                         waiting_for_read = True
                     else:
+                        waiting_for_read = False
                         if b is None:
                             outgoing = None
                             outgoing_finished = True
@@ -166,7 +167,7 @@ class SyncSocket(object):
                     # Can exit loop here with AbortSendAndReceive
                     consume_bytes(incoming)
 
-                if not outgoing_finished:
+                if outgoing and not outgoing_finished and not waiting_for_read:
                     try:
                         sent = self._sock.send(outgoing)
                         outgoing = outgoing[sent:]

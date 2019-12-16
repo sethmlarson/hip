@@ -30,6 +30,7 @@ from hip.models import (
     URL,
     Response as BaseResponse,
 )
+from hip.decoders import accept_encoding
 from hip.exceptions import RedirectLoopDetected, TooManyRedirects, HipError
 from hip.utils import user_agent
 
@@ -248,10 +249,11 @@ class Session:
                 != request.url.DEFAULT_PORT_BY_SCHEME.get(request.url.scheme, None)
             ):
                 request_host += f":{request_port}"
-            request.headers["host"] = request_host
+            request.headers.setdefault("host", request_host)
 
         request.headers.setdefault("accept", "*/*")
         request.headers.setdefault("user-agent", user_agent())
+        request.headers.setdefault("accept-encoding", accept_encoding())
         request.headers.setdefault("connection", "keep-alive")
 
         return request
@@ -280,10 +282,13 @@ class Session:
         """Applies the redirect to a request. This includes stripping insecure headers
         if the request is cross-origin and mutating the request method.
         """
+        headers = request.headers.copy()
+        headers.pop_all("host")  # Remove 'Host' as it may be replaced post-redirect.
+
         new_request = self.prepare_request(
             method=request.method,
             url=request.url.join(response.headers["location"]),
-            headers=request.headers.copy(),
+            headers=headers,
         )
 
         # Follow what browsers do. 301, 302, and 303 convert POST -> GET
