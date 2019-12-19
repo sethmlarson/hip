@@ -15,7 +15,7 @@ from hip.exceptions import (
     CertificateError,
 )
 from hip._backends import get_backend, AsyncBackend, AsyncSocket
-from .models import IS_ASYNC
+from .utils import IS_ASYNC
 from .http1 import HTTPTransaction, HTTP11Transaction
 
 
@@ -71,8 +71,8 @@ class BackgroundManager:
             return HTTP11Transaction(socket)
 
     async def _get_socket(self, conn_config: ConnectionConfig) -> AsyncSocket:
-        socket = None
-        to_pop = []
+        socket: typing.Optional[AsyncSocket] = None
+        to_pop: typing.List[ConnectionKey] = []
         for conn_key, sock in self.pool.items():
             if conn_config.match(conn_key):
                 if not sock.is_connected():

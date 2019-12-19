@@ -3,13 +3,17 @@ import trio
 import time
 
 
+async def task(http):
+    resp = await http.request("GET", "https://www.google.com")
+    await resp.close()
+
+
 async def main():
     t = time.time()
     http = hip.a.Session()
-    for _ in range(100):
-        resp = await http.request("HEAD", "https://httpbin.org/anything")
-        await resp.close()
-
+    async with trio.open_nursery() as nursery:
+        for _ in range(100):
+            nursery.start_soon(task, http)
     print(time.time() - t)
 
 

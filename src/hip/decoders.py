@@ -107,7 +107,7 @@ if brotli is not None:
         """
 
         def __init__(self):
-            self._obj = brotli.Decoder()
+            self._obj = brotli.Decompressor()
 
         def decompress(self, data: bytes) -> bytes:
             try:

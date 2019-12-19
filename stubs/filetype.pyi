@@ -1,0 +1,3 @@
+import typing
+
+def guess(data: bytes) -> typing.Optional[str]: ...

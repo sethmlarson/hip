@@ -6,7 +6,7 @@ import shutil
 import nox
 
 
-source_code = ("src/", "tests/", "docs/", "setup.py", "noxfile.py")
+source_code = ("src/", "tests/", "docs/", "stubs/", "setup.py", "noxfile.py")
 
 
 def _clean_coverage(coverage_path):

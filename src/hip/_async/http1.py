@@ -1,6 +1,7 @@
 import h11
 import typing
 from .models import Response
+from .utils import iter_next
 from hip.models import Request, Response as BaseResponse
 from hip._backends import AsyncSocket, AbortSendAndReceive, BlockedUntilNextRead
 
@@ -37,7 +38,7 @@ class HTTP11Transaction(HTTPTransaction):
                 raise BlockedUntilNextRead()
             try:
                 nonlocal request_data
-                data = await _iter_next(request_data)
+                data = await iter_next(request_data)
                 data_to_send = self.h11.send(h11.Data(data=data))
                 return data_to_send
 
@@ -103,7 +104,7 @@ class HTTP11Transaction(HTTPTransaction):
                     raise ValueError(str(event))
                 event = self.h11.next_event()
 
-            if response_data:
+            if response_data or response_ended:
                 raise AbortSendAndReceive()
 
         def get_response_data() -> bytes:
@@ -124,7 +125,7 @@ class HTTP11Transaction(HTTPTransaction):
             if request_ended:
                 return None
             try:
-                data = await _iter_next(request_data)
+                data = await iter_next(request_data)
                 return self.h11.send(h11.Data(data=data))
             except StopAsyncIteration:
                 request_ended = True
@@ -143,7 +144,9 @@ class HTTP11Transaction(HTTPTransaction):
             except AbortSendAndReceive:
                 pass
             finally:
-                yield get_response_data()
+                data = get_response_data()
+                if data:
+                    yield data
 
         # If the request still hasn't finished sending then do that here.
         while not request_ended:
@@ -171,10 +174,3 @@ def _request_to_h11_event(request: Request) -> h11.Request:
         target=request.target.encode(),
         headers=h11_headers,
     )
-
-
-T = typing.TypeVar("T")
-
-
-async def _iter_next(iterator: typing.AsyncIterator[T]) -> T:
-    return await iterator.__anext__()

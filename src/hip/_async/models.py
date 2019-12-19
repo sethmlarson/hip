@@ -8,6 +8,7 @@ from hip.models import HeadersType, Request, Headers, Response as BaseResponse
 from hip.decoders import get_content_decoder
 from hip.utils import INT_TO_URLENC, encoding_detector, TextChunker, BytesChunker
 from hip import utils
+from .utils import sync_or_async, IS_ASYNC
 
 AsyncAuthType = typing.Callable[[Request], typing.Awaitable[Request]]
 SyncAuthType = typing.Callable[[Request], Request]
@@ -37,31 +38,6 @@ JSONType = typing.Union[
     float,
     None,
 ]
-
-RetType = typing.TypeVar("RetType")
-AsyncCallable = typing.Union[
-    typing.Callable[[typing.Any], RetType],
-    typing.Callable[[typing.Any], typing.Awaitable[RetType]],
-]
-SyncCallable = typing.Callable[[typing.Any], RetType]
-
-
-def detect_is_async() -> typing.Union[typing.Literal[True], typing.Literal[False]]:
-    """Tests if we're in the async part of the code or not"""
-
-    async def f():
-        """Unasync transforms async functions in sync functions"""
-        return None
-
-    obj = f()
-    if obj is None:
-        return typing.cast(typing.Literal[False], False)
-    else:
-        obj.close()  # prevent un-awaited coroutine warning
-        return typing.cast(typing.Literal[True], True)
-
-
-IS_ASYNC = detect_is_async()
 
 
 class Response(BaseResponse):
@@ -434,14 +410,20 @@ class URLEncodedForm(RequestData):
 
 
 class MultipartFormField(RequestData):
+    """Essentially a wrapper for a 'RequestData' object with
+    a name, filename, and headers.
+    """
+
     def __init__(
         self,
         name: str,
-        data: typing.Optional[typing.Union[bytes, str, typing.BinaryIO]] = None,
+        *,
+        data: RequestData,
         filename: typing.Optional[str] = None,
         headers: typing.Optional[HeadersType] = None,
     ):
         self._headers: Headers  # NOTE: Only a type annotation here.
+
         self.name = name
         self.data = data
         self.filename = filename
@@ -457,49 +439,83 @@ class MultipartFormField(RequestData):
             value = Headers(value or ())
         self._headers = value
 
-    async def content_length(self) -> int:
-        ...
+    async def content_length(self) -> typing.Optional[int]:
+        data_length = await self.data.content_length()
+        if data_length is None:
+            return None
+        return len(self.render_headers()) + data_length
 
     async def data_chunks(self) -> typing.AsyncIterator[bytes]:
-        ...
+        return await self.data.data_chunks()
 
     @property
     def content_type(self) -> str:
-        return self.headers.get_one("content-type", "application/octet-stream")
+        return self.headers.get_one("content-type", self.data.content_type)
+
+    def render_headers(self) -> bytes:
+        """Renders the headers for the Multipart field."""
+        lines = []
+
+        # Render these headers before any others as they're defined in the standard.
+        priority_headers = ("content-disposition", "content-type")
+        for name in priority_headers:
+            value = self.headers.get(name, None)
+            if value is not None:
+                lines.append(b"%b: %b" % (name.encode(), value.encode()))
+
+        for name, value in self.headers.items():
+            name = name.lower()
+            if value is not None and name not in priority_headers:
+                lines.append(b"%b: %b" % (name.encode(), value.encode()))
+
+        lines.append(b"\r\n")
+        return b"\r\n".join(lines)
 
 
 class MultipartForm(RequestData):
     """Implements multipart/form-data as a RequestData object"""
 
-    def __init__(self, form):
-        self._form = form
+    def __init__(self, fields=None):
+        self._fields: typing.List[MultipartFormField] = fields or []
         self._boundary: typing.Optional[str] = None
 
     def add_field(
         self,
         name: str,
+        data: DataType,
         *,
-        data: typing.Optional[typing.Union[bytes, str, typing.BinaryIO]] = None,
         filename: typing.Optional[str] = None,
-        content_type: typing.Optional[str] = None,
         headers: typing.Optional[HeadersType] = None,
-    ) -> None:
-        ...
+    ) -> MultipartFormField:
+        """Adds a field to the multipart form"""
+        field = MultipartFormField(
+            name=name, data=data, filename=filename, headers=headers
+        )
+        self._fields.append(field)
+        return field
 
     async def content_length(self) -> typing.Optional[int]:
+        """Needs to check all fields to see that they have a defined
+        length (non-iterable). If any field doesn't have a defined length
+        then we must use the chunked transfer-encoding for the entire message.
+        """
         field_size = 0
         number_of_fields = 0
-        for field in self._iter_fields():
+        for field in self._fields:
             number_of_fields += 1
-            field_size += await field.content_length()
-        return (6 + len(self.boundary)) * (number_of_fields + 1)
+            field_length = await field.content_length()
+            if field_length is None:
+                return None
+            field_size += field_length
+        return ((6 + len(self.boundary)) * (number_of_fields + 1)) + field_size
 
     async def data_chunks(self) -> typing.AsyncIterable[bytes]:
         boundary_bytes = self.boundary.encode()
-        for field in self._iter_fields():
+        for field in self._fields:
             yield b"--%b\r\n%b" % (boundary_bytes, field.render_headers())
             async for chunk in (await field.data_chunks()):
                 yield chunk
+            yield b"\r\n"
         yield b"--%b--\r\n" % boundary_bytes
 
     @property
@@ -511,15 +527,3 @@ class MultipartForm(RequestData):
         if self._boundary is None:
             self._boundary = binascii.hexlify(os.urandom(16)).decode()
         return self._boundary
-
-    def _iter_fields(self) -> typing.Iterable[MultipartFormField]:
-        ...
-
-
-async def sync_or_async(
-    f: AsyncCallable, *args: typing.Any, **kwargs: typing.Any
-) -> RetType:
-    ret = f(*args, **kwargs)
-    if IS_ASYNC and hasattr(ret, "__await__"):
-        ret = await ret
-    return ret

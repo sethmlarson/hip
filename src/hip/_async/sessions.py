@@ -10,10 +10,10 @@ from .models import (
     DataType,
     Bytes,
     NoData,
-    sync_or_async,
 )
 from .models import Response, File
 from .manager import ConnectionConfig, BackgroundManager
+from .utils import sync_or_async
 from hip.models import (
     Request,
     ParamsType,
@@ -129,6 +129,11 @@ class Session:
         if "content-type" not in request.headers:
             request.headers.setdefault("content-type", request_data.content_type)
 
+        host = request.url.host
+        pinned_cert = self.pinned_certs.get(host, None)
+        if pinned_cert is not None:
+            pinned_cert = (host, pinned_cert)
+
         response_history: typing.List[BaseResponse] = []
         visited_urls = {request.url}
         while True:
@@ -136,11 +141,6 @@ class Session:
             # This section doesn't have a response associated with it
             # so we only add the Request to the potential HipError.
             try:
-                host = request.url.host
-                pinned_cert = self.pinned_certs.get(host, None)
-                if pinned_cert is not None:
-                    pinned_cert = (host, pinned_cert)
-
                 conn_config = ConnectionConfig(
                     origin=request.url.origin,
                     http_versions=self.http_versions,
