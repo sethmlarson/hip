@@ -3,9 +3,8 @@ import typing
 
 
 RetType = typing.TypeVar("RetType")
-AsyncCallable = typing.Union[
-    typing.Callable[[typing.Any], RetType],
-    typing.Callable[[typing.Any], typing.Awaitable[RetType]],
+AsyncCallable = typing.Callable[
+    [typing.Any], typing.Union[RetType, typing.Awaitable[RetType]]
 ]
 SyncCallable = typing.Callable[[typing.Any], RetType]
 
@@ -13,7 +12,7 @@ SyncCallable = typing.Callable[[typing.Any], RetType]
 def detect_is_async() -> typing.Union[typing.Literal[True], typing.Literal[False]]:
     """Tests if we're in the async part of the code or not"""
 
-    async def f():
+    async def f() -> None:
         """Unasync transforms async functions in sync functions"""
         return None
 
@@ -41,7 +40,7 @@ class SyncOnlyLock:
     'head' of execution.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.lock: typing.Optional[
             threading.Lock
         ] = None if IS_ASYNC else threading.Lock()
@@ -59,7 +58,7 @@ class SyncOnlyLock:
 async def sync_or_async(
     f: AsyncCallable, *args: typing.Any, **kwargs: typing.Any
 ) -> RetType:
-    ret = f(*args, **kwargs)
+    ret = f(*args, **kwargs)  # type: ignore
     if IS_ASYNC and hasattr(ret, "__await__"):
         ret = await ret
-    return ret
+    return ret  # type: ignore

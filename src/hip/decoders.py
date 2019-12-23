@@ -1,8 +1,12 @@
 """Decoders for all Accept-Encoding headers"""
 import enum
+import typing
 import functools
 import zlib
+import types
 
+brotli: typing.Optional[types.ModuleType]
+zstandard: typing.Optional[types.ModuleType]
 try:
     import brotli
 except ImportError:
@@ -31,7 +35,7 @@ class IdentityDecoder(Decoder):
 
 
 class DeflateDecoder(Decoder):
-    def __init__(self):
+    def __init__(self) -> None:
         self._first_try = True
         self._data = bytearray()
         self._obj = zlib.decompressobj()
@@ -68,7 +72,7 @@ class GzipDecoderState(enum.Enum):
 
 
 class GzipDecoder(Decoder):
-    def __init__(self):
+    def __init__(self) -> None:
         self._obj = zlib.decompressobj(16 + zlib.MAX_WBITS)
         self._state = GzipDecoderState.FIRST_MEMBER
 
@@ -106,7 +110,7 @@ if brotli is not None:
         code branches support 'Brotli'.
         """
 
-        def __init__(self):
+        def __init__(self) -> None:
             self._obj = brotli.Decompressor()
 
         def decompress(self, data: bytes) -> bytes:
@@ -127,7 +131,7 @@ if zstandard is not None:
     class ZstdDecoder(Decoder):
         """RFC 8478 currently in use by Facebook mostly"""
 
-        def __init__(self):
+        def __init__(self) -> None:
             self._decompressor = zstandard.ZstdDecompressor()
             self._obj = self._decompressor.decompressobj()
 
@@ -147,7 +151,7 @@ class MultiDecoder(Decoder):
         they were applied.
     """
 
-    def __init__(self, content_encoding: str):
+    def __init__(self, content_encoding: str) -> None:
         self._decompressors = [
             get_content_decoder(m.strip()) for m in content_encoding.split(",")
         ][::-1]

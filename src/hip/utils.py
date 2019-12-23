@@ -124,12 +124,17 @@ class BytesChunker:
     def feed(self, data: bytes) -> typing.Iterable[bytes]:
         if self.chunk_size is None:
             return (data,)
-        # TODO: Implement chunk_size
+        chunks = []
+        self.byte_buffer += data
+        while len(self.byte_buffer) >= self.chunk_size:
+            chunks.append(bytes(self.byte_buffer[: self.chunk_size]))
+            self.byte_buffer = self.byte_buffer[self.chunk_size :]
+        return chunks
 
     def flush(self) -> typing.Iterable[bytes]:
         if self.chunk_size is None:
             return ()
-        # TODO: Implement chunk_size
+        return (bytes(self.byte_buffer),)
 
 
 class TextChunker:
@@ -143,17 +148,54 @@ class TextChunker:
         self.byte_buffer = bytearray()
 
     def feed(self, data: bytes) -> typing.Iterable[str]:
-        if self.chunk_size is None:
-            return (data.decode(self.encoding),)
-        # TODO: Implement chunk_size
+        self.byte_buffer += data
+
+        text = self._decode_byte_buffer()
+        if isinstance(text, str):
+            self.string_buffer += text
+        elif isinstance(text, UnicodeDecodeError):
+            raise text from None
+
+        chunks = []
+        while len(self.string_buffer) >= self.chunk_size:
+            chunks.append(self.string_buffer[: self.chunk_size])
+            self.string_buffer = self.string_buffer[self.chunk_size :]
+        return chunks
 
     def flush(self) -> typing.Iterable[str]:
         if self.chunk_size is None:
             return ()
-        # TODO: Implement chunk_size
+        elif len(self.byte_buffer):
+            print(self.byte_buffer, repr(self.string_buffer))
+            raise UnicodeDecodeError()
+        return (self.string_buffer,) if self.string_buffer else ()
+
+    def _decode_byte_buffer(
+        self,
+    ) -> typing.Optional[typing.Union[str, UnicodeDecodeError]]:
+        error: typing.Optional[UnicodeDecodeError] = None
+        buffer_len = len(self.byte_buffer)
+        for i in range(buffer_len + 8, buffer_len, -1):
+            try:
+                text = self.byte_buffer[:i].decode(self.encoding)
+                self.byte_buffer = self.byte_buffer[i:]
+                return text
+            except UnicodeDecodeError as e:
+                error = e
+        if len(self.byte_buffer) >= 8 and error:
+            return error
+        return None
 
 
 def user_agent() -> str:
     from hip import __version__
 
     return f"python-hip/{__version__}"
+
+
+def to_bytes(value: typing.Union[str, bytes], encoding: str = "utf-8") -> bytes:
+    return value.encode(encoding) if isinstance(value, str) else value
+
+
+def to_str(value: typing.Union[str, bytes], encoding: str = "utf-8") -> str:
+    return value.decode(encoding) if isinstance(value, bytes) else value

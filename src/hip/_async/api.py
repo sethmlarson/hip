@@ -8,8 +8,8 @@ from hip.models import (
     ProxiesType,
     RetriesType,
     RedirectsType,
-    CookiesType,
 )
+from hip.cookies import CookiesType
 
 
 async def request(

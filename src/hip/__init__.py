@@ -1,3 +1,4 @@
+from .cookies import CookiesType, Cookies
 from .exceptions import (
     HipError,
     HTTPError,
@@ -38,6 +39,8 @@ from . import _async as a
 from . import s
 
 __all__ = [
+    "CookiesType",
+    "Cookies",
     "URL",
     "Headers",
     "Request",

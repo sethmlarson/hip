@@ -9,6 +9,7 @@ from .models import (
 )
 from .sessions import Session
 from .api import request
+from .auth import BasicAuth
 
 __all__ = [
     "RequestData",
@@ -20,4 +21,5 @@ __all__ = [
     "request",
     "NoData",
     "Bytes",
+    "BasicAuth",
 ]

@@ -1,6 +1,7 @@
 import certifi
 import io
 import typing
+from .auth import BasicAuth
 from .models import (
     JSON,
     JSONType,
@@ -25,11 +26,13 @@ from hip.models import (
     TLSVersion,
     CACertsType,
     PinnedCertsType,
-    CookiesType,
     URLType,
     URL,
     Response as BaseResponse,
+    Params,
+    Headers,
 )
+from hip.cookies import CookiesType
 from hip.decoders import accept_encoding
 from hip.exceptions import RedirectLoopDetected, TooManyRedirects, HipError
 from hip.utils import user_agent
@@ -61,6 +64,10 @@ class Session:
         tls_max_version: TLSVersion = TLSVersion.MAXIMUM_SUPPORTED,
         http_versions: typing.Sequence[str] = ("HTTP/1.1",),
     ):
+        if isinstance(auth, tuple):
+            username, password = auth
+            auth = BasicAuth(username=username, password=password)
+
         self.headers = headers
         self.auth = auth
         self.retries = retries
@@ -101,7 +108,18 @@ class Session:
     ) -> Response:
         """Sends a request."""
         url = URL.parse(url)
-        request = self.prepare_request(
+        params = Params(params)
+        headers = Headers(headers)
+
+        # Pull Basic auth from the URL if not other auth is specified.
+        if auth is None and (url.username is not None or url.password is not None):
+            auth = BasicAuth(
+                username=url.username or b"", password=url.password or b"",
+            )
+            url.username = None
+            url.password = None
+
+        request = await self.prepare_request(
             method=method,
             url=url,
             headers=headers,
@@ -110,10 +128,7 @@ class Session:
             params=params,
         )
 
-        if auth:
-            request = await sync_or_async(auth, request)
-
-        request_data = self.prepare_data(data=data, json=json)
+        request_data = await self.prepare_data(data=data, json=json)
 
         # Set the framing headers if they haven't been set yet.
         if (
@@ -126,6 +141,7 @@ class Session:
             else:
                 request.headers.setdefault("content-length", str(content_length))
 
+        # Don't calculate the 'content-type' unless there's no override.
         if "content-type" not in request.headers:
             request.headers.setdefault("content-type", request_data.content_type)
 
@@ -136,8 +152,8 @@ class Session:
 
         response_history: typing.List[BaseResponse] = []
         visited_urls = {request.url}
-        while True:
 
+        while True:
             # This section doesn't have a response associated with it
             # so we only add the Request to the potential HipError.
             try:
@@ -219,14 +235,14 @@ class Session:
             resp.history = response_history
             return resp
 
-    def prepare_request(
+    async def prepare_request(
         self,
         method: str,
         url: URL,
-        headers: typing.Optional[HeadersType] = None,
+        headers: Headers,
         auth: typing.Optional[AuthType] = None,
         cookies: typing.Optional[CookiesType] = None,
-        params: typing.Optional[ParamsType] = None,
+        params: typing.Optional[Params] = None,
     ) -> Request:
         """Given all components that contribute to a request sans-body
         create a Request instance. This method takes all the information from
@@ -240,6 +256,13 @@ class Session:
         """
         request = Request(method=method, url=url, headers=headers)
 
+        if params:
+            request.url.params = str(
+                self.prepare_params(request=request, params=params)
+            )
+        if headers:
+            request.headers = self.prepare_headers(request=request, headers=headers)
+
         if "host" not in request.headers:
             request_host = request.url.host
             request_port = request.url.port
@@ -251,6 +274,9 @@ class Session:
                 request_host += f":{request_port}"
             request.headers.setdefault("host", request_host)
 
+        if auth:
+            request = await sync_or_async(auth, request)
+
         request.headers.setdefault("accept", "*/*")
         request.headers.setdefault("user-agent", user_agent())
         request.headers.setdefault("accept-encoding", accept_encoding())
@@ -258,7 +284,9 @@ class Session:
 
         return request
 
-    def prepare_data(self, data: DataType = None, json: JSONType = None) -> RequestData:
+    async def prepare_data(
+        self, data: DataType = None, json: JSONType = None
+    ) -> RequestData:
         """Changes the 'data' and 'json' parameters into a 'RequestData'
         object that handles the many different data types that we support.
         """
@@ -277,18 +305,23 @@ class Session:
             return Bytes(data.encode("utf-8"))
         elif isinstance(data, io.BinaryIO) or hasattr(data, "read"):
             return File(data)
+        return NoData()
 
-    def prepare_redirect(self, request: Request, response: Response) -> Request:
+    async def prepare_redirect(self, request: Request, response: Response) -> Request:
         """Applies the redirect to a request. This includes stripping insecure headers
         if the request is cross-origin and mutating the request method.
         """
         headers = request.headers.copy()
         headers.pop_all("host")  # Remove 'Host' as it may be replaced post-redirect.
+        headers.pop_all("cookie")  # Remove 'Cookie' as it will be re-applied.
 
-        new_request = self.prepare_request(
+        new_request = await self.prepare_request(
             method=request.method,
             url=request.url.join(response.headers["location"]),
             headers=headers,
+            auth=None,
+            cookies=None,
+            params=None,
         )
 
         # Follow what browsers do. 301, 302, and 303 convert POST -> GET
@@ -307,3 +340,23 @@ class Session:
                 new_request.headers.pop_all("authorization")
 
         return new_request
+
+    def prepare_params(self, request: Request, params: Params) -> Params:
+        """Merges params from the request and the kwarg"""
+        print(request.url.params)
+        merged_params = Params(request.url.params)
+        print(merged_params)
+        for k in params:
+            merged_params.pop(k, None)
+        for k, v in params.items():
+            merged_params.add(k, v)
+        return merged_params
+
+    def prepare_headers(self, request: Request, headers: Headers) -> Headers:
+        """Merges headers from the request and the kwarg"""
+        merged_headers = request.headers.copy()
+        for k in headers:
+            merged_headers.pop(k, None)
+        for k, v in headers:
+            merged_headers.add(k, v)
+        return merged_headers

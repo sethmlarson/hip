@@ -8,7 +8,7 @@ import codecs
 import pathlib
 import hmac
 import hashlib
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, urlencode, parse_qsl
 from .utils import parse_mimetype, is_known_encoding, pretty_fingerprint, none_is_inf
 from .exceptions import HTTPError, URLError, CertificateFingerprintMismatch
 
@@ -28,7 +28,6 @@ HeadersType = typing.Union[
 ]
 URLType = typing.Union[str, "URL"]
 ProxiesType = typing.Mapping[str, URLType]
-CookiesType = typing.Mapping[str, str]
 
 REDIRECT_STATUSES = {
     301,  # Moved Permanently
@@ -172,7 +171,7 @@ class URL:
             host=parsed.hostname,
             port=parsed.port,
             path=parsed.path or None,
-            params=parsed.params or None,
+            params=parsed.query or None,
             fragment=parsed.fragment or None,
         )
 
@@ -351,6 +350,9 @@ class MultiMapping(typing.Generic[KT, VT, NormKT, NormVT]):
     def __delitem__(self, key: KT) -> None:
         self._internal.pop(self._normalize_key(key), None)
 
+    def __iter__(self) -> typing.Iterator[NormKT]:
+        return iter(self.keys())
+
     def _normalize_key(self, key: KT) -> NormKT:
         return key
 
@@ -396,10 +398,16 @@ class Headers(
 
 
 class Params(MultiMapping[str, ParamsValueType, str, ParamsValueType]):
+    def __init__(self, values: typing.Union[str, ParamsType]):
+        if isinstance(values, str):
+            values = parse_qsl(values)
+        super().__init__(values)
+
     def __repr__(self) -> str:
         return f"<Params {[(k, v) for k, v in self.items()]!r}>"
 
-    __str__ = __repr__
+    def __str__(self) -> str:
+        return urlencode(list(self.items()), doseq=True)
 
 
 class Request:
@@ -446,9 +454,7 @@ class Request:
     def target(self) -> str:
         if self._target is not None:
             return self._target
-        return (
-            f"{self.url.path or '/'}{'?' + self.url.params if self.url.params else ''}"
-        )
+        return f"{self.url.path or '/'}{'?' + str(self.url.params) if self.url.params else ''}"
 
     @target.setter
     def target(self, value: str) -> None:
