@@ -19,6 +19,11 @@ from hip.models import (
 from hip import utils
 
 
+WaitForSocketType = typing.Callable[
+    [socket.socket, bool, bool, typing.Optional[float]], bool
+]
+
+
 class SyncBackend(object):
     def connect(
         self,
@@ -28,9 +33,13 @@ class SyncBackend(object):
         source_address: typing.Optional[typing.Tuple[str, int]] = None,
         socket_options: typing.Optional[SocketOptionsType] = None,
     ) -> "SyncSocket":
-        conn = socket.create_connection(
-            (host, port), connect_timeout, source_address=source_address,
-        )
+        if source_address is not None:
+            conn = socket.create_connection(
+                (host, port), connect_timeout, source_address=source_address,
+            )
+        else:
+            conn = socket.create_connection((host, port), connect_timeout)
+
         for level, optname, value in socket_options or ():
             conn.setsockopt(level, optname, value)
 
@@ -46,8 +55,8 @@ class SyncSocket(object):
     def __init__(
         self,
         sock: typing.Union[socket.socket, ssl.SSLSocket],
-        _wait_for_socket=wait_for_socket,
-    ):
+        _wait_for_socket: WaitForSocketType = wait_for_socket,
+    ) -> None:
         self._sock = sock
         # We keep the socket in non-blocking mode, except during connect() and
         # during the SSL handshake:
@@ -55,7 +64,7 @@ class SyncSocket(object):
         self._wait_for_socket = _wait_for_socket
 
     def start_tls(
-        self, server_hostname: str, ssl_context: ssl.SSLContext
+        self, server_hostname: typing.Optional[str], ssl_context: ssl.SSLContext
     ) -> "SyncSocket":
         self._sock.setblocking(True)
         wrapped = ssl_context.wrap_socket(self._sock, server_hostname=server_hostname)
@@ -63,24 +72,28 @@ class SyncSocket(object):
         return SyncSocket(wrapped)
 
     @typing.overload
-    def getpeercert(self, binary_form: typing.Literal[True]) -> bytes:
+    def getpeercert(self, binary_form: typing.Literal[True]) -> typing.Optional[bytes]:
         ...
 
     @typing.overload
-    def getpeercert(self, binary_form: typing.Literal[False]) -> dict:
+    def getpeercert(
+        self, binary_form: typing.Literal[False]
+    ) -> typing.Optional[typing.Dict[str, typing.Any]]:
         ...
 
     # Only for SSL-wrapped sockets
-    def getpeercert(self, binary_form: bool = False) -> typing.Union[bytes, dict]:
+    def getpeercert(
+        self, binary_form: bool = False
+    ) -> typing.Optional[typing.Union[bytes, typing.Dict[str, typing.Any]]]:
+        if not isinstance(self._sock, ssl.SSLSocket):
+            return None
         return self._sock.getpeercert(binary_form=binary_form)
 
     def _wait(
         self, readable: bool, writable: bool, timeout: typing.Optional[float] = None
     ) -> None:
         assert readable or writable
-        if not self._wait_for_socket(
-            self._sock, read=readable, write=writable, timeout=timeout
-        ):
+        if not self._wait_for_socket(self._sock, readable, writable, timeout):
             raise socket.timeout()  # XX use a backend-agnostic exception
 
     def send_all(self, data: bytes) -> None:
@@ -117,7 +130,7 @@ class SyncSocket(object):
         produce_bytes: typing.Callable[[], bytes],
         consume_bytes: typing.Callable[[bytes], None],
         read_timeout: float,
-    ):
+    ) -> None:
         outgoing_finished = False
         outgoing = b""
         waiting_for_read = False
@@ -189,12 +202,12 @@ class SyncSocket(object):
             pass
 
     def http_version(self) -> typing.Optional[str]:
-        if not hasattr(self._sock, "selected_alpn_protocol"):
+        if not isinstance(self._sock, ssl.SSLSocket):
             return None
         return alpn_to_http_version(self._sock.selected_alpn_protocol())
 
     def tls_version(self) -> typing.Optional[TLSVersion]:
-        if not hasattr(self._sock, "version"):
+        if not isinstance(self._sock, ssl.SSLSocket):
             return None
         return sslsocket_version_to_tls_version(self._sock.version())
 

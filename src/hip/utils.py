@@ -165,8 +165,7 @@ class TextChunker:
     def flush(self) -> typing.Iterable[str]:
         if self.chunk_size is None:
             return ()
-        elif len(self.byte_buffer):
-            print(self.byte_buffer, repr(self.string_buffer))
+        elif len(self.byte_buffer) > 0:
             raise UnicodeDecodeError()
         return (self.string_buffer,) if self.string_buffer else ()
 

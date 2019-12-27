@@ -100,6 +100,7 @@ class Session:
         retries: typing.Optional[RetriesType] = None,
         redirects: typing.Optional[typing.Union[int, bool]] = None,
         # Transaction
+        server_hostname: typing.Optional[str] = None,
         timeout: typing.Optional[TimeoutType] = None,
         proxies: typing.Optional[ProxiesType] = None,
         http_versions: typing.Optional[
@@ -159,6 +160,7 @@ class Session:
             try:
                 conn_config = ConnectionConfig(
                     origin=request.url.origin,
+                    server_hostname=server_hostname,
                     http_versions=self.http_versions,
                     ca_certs=self.ca_certs,
                     pinned_cert=pinned_cert,
@@ -206,7 +208,7 @@ class Session:
 
                     # Detect when we've already been redirected to a URL before
                     # and if we're redirected again then complain.
-                    redirect_request = self.prepare_redirect(request, resp)
+                    redirect_request = await self.prepare_redirect(request, resp)
                     if redirect_request.url in visited_urls:
                         # Create a list of URLs that we visited to reach this loop
                         # to display to the user.
@@ -357,6 +359,6 @@ class Session:
         merged_headers = request.headers.copy()
         for k in headers:
             merged_headers.pop(k, None)
-        for k, v in headers:
+        for k, v in headers.items():
             merged_headers.add(k, v)
         return merged_headers

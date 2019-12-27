@@ -38,9 +38,6 @@ class AsyncBackend:
     ) -> "AsyncSocket":
         ...
 
-    async def spawn_system_task(self, task: typing.Callable) -> None:
-        ...
-
     async def sleep(self, seconds: float) -> None:
         ...
 
@@ -52,14 +49,18 @@ class AsyncSocket:
         raise NotImplementedError()
 
     @typing.overload
-    def getpeercert(self, binary_form: typing.Literal[True]) -> bytes:
+    def getpeercert(self, binary_form: typing.Literal[True]) -> typing.Optional[bytes]:
         ...
 
     @typing.overload
-    def getpeercert(self, binary_form: typing.Literal[False]) -> dict:
+    def getpeercert(
+        self, binary_form: typing.Literal[False]
+    ) -> typing.Optional[typing.Dict[str, typing.Any]]:
         ...
 
-    def getpeercert(self, binary_form: bool = False) -> typing.Union[bytes, dict]:
+    def getpeercert(
+        self, binary_form: bool = False
+    ) -> typing.Optional[typing.Union[bytes, typing.Dict[str, typing.Any]]]:
         raise NotImplementedError()
 
     def selected_alpn_protocol(self) -> typing.Optional[str]:

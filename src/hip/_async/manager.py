@@ -23,6 +23,7 @@ class ConnectionConfig(typing.NamedTuple):
     """Represents a request for a connection from a Session"""
 
     origin: Origin
+    server_hostname: typing.Optional[str]
     http_versions: typing.Sequence[str]
     ca_certs: typing.Optional[CACertsType]
     pinned_cert: typing.Optional[typing.Tuple[str, str]]
@@ -33,6 +34,7 @@ class ConnectionConfig(typing.NamedTuple):
         return all(
             (
                 self.origin == conn_key.origin,
+                self.server_hostname == conn_key.server_hostname,
                 self.ca_certs == conn_key.ca_certs,
                 self.pinned_cert == conn_key.pinned_cert,
                 conn_key.http_version in self.http_versions,
@@ -52,6 +54,7 @@ class ConnectionKey(typing.NamedTuple):
     """Represents a connection within the pool"""
 
     origin: Origin
+    server_hostname: typing.Optional[str]
     http_version: str
     ca_certs: typing.Optional[CACertsType]
     pinned_cert: typing.Optional[typing.Tuple[str, str]]
@@ -60,8 +63,14 @@ class ConnectionKey(typing.NamedTuple):
 
 class BackgroundManager:
     def __init__(self):
-        self.backend: AsyncBackend = get_backend(IS_ASYNC)
         self.pool: typing.Dict[ConnectionKey, AsyncSocket] = {}
+        self._backend: typing.Optional[AsyncBackend] = None
+
+    @property
+    def backend(self) -> AsyncBackend:
+        if self._backend is None:
+            self._backend = get_backend(IS_ASYNC)
+        return self._backend
 
     async def start_http_transaction(
         self, conn_config: ConnectionConfig
@@ -100,7 +109,10 @@ class BackgroundManager:
                 tls_max_version=conn_config.tls_max_version,
             )
 
-            socket = await socket.start_tls(server_hostname=host, ssl_context=ctx)
+            server_hostname = conn_config.server_hostname or host
+            socket = await socket.start_tls(
+                server_hostname=server_hostname, ssl_context=ctx
+            )
 
             if conn_config.pinned_cert:
                 verify_peercert_fingerprint(
@@ -111,7 +123,8 @@ class BackgroundManager:
         http_version = socket.http_version() or "HTTP/1.1"
         tls_version = socket.tls_version()
         conn_key = ConnectionKey(
-            conn_config.origin,
+            origin=conn_config.origin,
+            server_hostname=conn_config.server_hostname,
             http_version=http_version,
             ca_certs=conn_config.ca_certs,
             pinned_cert=conn_config.pinned_cert,

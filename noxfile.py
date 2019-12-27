@@ -59,11 +59,12 @@ def blacken(session):
 
 @nox.session
 def lint(session):
-    session.install("flake8", "black")
+    session.install("flake8", "black", "mypy", "trio-typing")
     session.run("flake8", "--version")
     session.run("black", "--version")
     session.run("black", "--check", *source_code)
     session.run("flake8", *source_code)
+    session.run("mypy", "--strict", "src/", env={"MYPYPATH": "stubs/"})
 
 
 @nox.session

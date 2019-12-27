@@ -36,7 +36,11 @@ from .models import (
 )
 from .status_codes import StatusCode
 from . import _async as a
-from . import s
+
+try:
+    from . import _sync as s
+except ImportError:
+    s = None
 
 __all__ = [
     "CookiesType",

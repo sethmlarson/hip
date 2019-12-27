@@ -1,3 +1,4 @@
+import io
 import os
 import binascii
 import typing
@@ -180,14 +181,14 @@ class Response(BaseResponse):
         """Same as above except ''.join(self.stream_text())"""
         return (await self.data()).decode(self.encoding)
 
-    async def json(
-        self, loads: typing.Callable[[str], typing.Any] = json.loads
-    ) -> typing.Any:
-        """Attempts to decode self.text() into JSON, optionally with a custom JSON loader."""
-        return loads((await self.text()))
+    async def json(self) -> typing.Any:
+        """Attempts to decode self.text() into JSON."""
+        return json.loads((await self.text()))
 
     async def close(self) -> None:
-        """Flushes the response body and puts the connection back into the pool"""
+        """Flushes the response body which should
+        release the connection back into the pool.
+        """
         async for _ in self._raw_data:
             pass
 
@@ -197,6 +198,71 @@ class Response(BaseResponse):
     async def __aexit__(self, *_: typing.Any) -> None:
         """Automatically closes the response for you once the context manager is exited"""
         await self.close()
+
+    @typing.overload
+    def as_file(self, mode: typing.Literal["r"]) -> io.TextIOBase:
+        ...
+
+    @typing.overload
+    def as_file(self, mode: typing.Literal["rb"]) -> io.IOBase:
+        ...
+
+    def as_file(self, mode: str = "r") -> typing.Union[io.TextIOBase, io.IOBase]:
+        """Creates a file-like object that can be used within things like csv.DictReader(),
+        data-frames, and other interfaces expecting a file-like interface.
+        I don't know what this would look like on the async-side. Looking at what trio
+        exposes as an interface is probably a good place to start.
+        """
+
+
+class _ResponseTextIO(io.TextIOBase):
+    def __init__(self, response: Response) -> None:
+        self._response = response
+        self._closed = False
+
+    def read(self, n: typing.Optional[int] = None) -> str:
+        pass
+
+    def close(self) -> None:
+        if not self._closed:
+            self._closed = True
+            self._response.close()
+            self._response = None
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
+
+    def __enter__(self) -> "_ResponseTextIO":
+        return self
+
+    def __exit__(self, *_) -> None:
+        self.close()
+
+
+class _ResponseBinaryIO(io.IOBase):
+    def __init__(self, response: Response) -> None:
+        self._response = response
+        self._closed = False
+
+    def read(self, n: typing.Optional[int] = None) -> str:
+        pass
+
+    def close(self) -> None:
+        if not self._closed:
+            self._closed = True
+            self._response.close()
+            self._response = None
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
+
+    def __enter__(self) -> "_ResponseBinaryIO":
+        return self
+
+    def __exit__(self, *_) -> None:
+        self.close()
 
 
 class RequestData:

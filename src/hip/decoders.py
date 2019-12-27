@@ -1,21 +1,8 @@
 """Decoders for all Accept-Encoding headers"""
 import enum
-import typing
 import functools
+import typing
 import zlib
-import types
-
-brotli: typing.Optional[types.ModuleType]
-zstandard: typing.Optional[types.ModuleType]
-try:
-    import brotli
-except ImportError:
-    brotli = None
-
-try:
-    import zstandard
-except ImportError:
-    zstandard = None
 
 
 class Decoder:
@@ -101,7 +88,8 @@ class GzipDecoder(Decoder):
         return self._obj.flush()
 
 
-if brotli is not None:
+try:
+    import brotli
 
     class BrotliDecoder(Decoder):
         """Supports both 'brotlipy' and 'Brotli' packages
@@ -125,8 +113,13 @@ if brotli is not None:
             except AttributeError:
                 return b""
 
+    _has_br = True
+except ImportError:
+    _has_br = False
 
-if zstandard is not None:
+
+try:
+    import zstandard
 
     class ZstdDecoder(Decoder):
         """RFC 8478 currently in use by Facebook mostly"""
@@ -141,6 +134,10 @@ if zstandard is not None:
         def flush(self) -> bytes:
             return self._obj.flush() or b""
 
+    _has_zstd = True
+except ImportError:
+    _has_zstd = False
+
 
 class MultiDecoder(Decoder):
     """
@@ -152,20 +149,22 @@ class MultiDecoder(Decoder):
     """
 
     def __init__(self, content_encoding: str) -> None:
-        self._decompressors = [
+        self._decoders = [
             get_content_decoder(m.strip()) for m in content_encoding.split(",")
         ][::-1]
 
     def decompress(self, data: bytes) -> bytes:
-        for d in self._decompressors:
+        for d in self._decoders:
             data = d.decompress(data)
         return data
 
     def flush(self) -> bytes:
-        return self._decompressors[-1].flush()
+        return self._decoders[-1].flush()
 
 
-def get_content_decoder(content_encoding: str) -> Decoder:
+def get_content_decoder(content_encoding: typing.Optional[str]) -> Decoder:
+    if content_encoding is None:
+        return IdentityDecoder()
     content_encoding = content_encoding.strip()
     if "," in content_encoding:
         return MultiDecoder(content_encoding)
@@ -173,9 +172,9 @@ def get_content_decoder(content_encoding: str) -> Decoder:
         return GzipDecoder()
     if content_encoding in ("deflate", "x-deflate"):
         return DeflateDecoder()
-    if brotli is not None and content_encoding == "br":
+    if _has_br and content_encoding == "br":
         return BrotliDecoder()
-    if zstandard is not None and content_encoding == "zstd":
+    if _has_zstd and content_encoding == "zstd":
         return ZstdDecoder()
     # Give up, we don't know what this Content-Encoding is.
     return IdentityDecoder()
@@ -186,9 +185,11 @@ def accept_encoding() -> str:
     """Returns the value of 'Accept-Encoding' that the client should use.
     This value varies depending on what packages are installed.
     """
+    delimiter = ", "
     accept_enc = ["gzip", "deflate"]
     if brotli is not None:
         accept_enc.append("br")
-    if zstandard is not None:
+    if _has_zstd:
+        delimiter = ","
         accept_enc.append("zstd")
-    return ", ".join(accept_enc)
+    return delimiter.join(accept_enc)

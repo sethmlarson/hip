@@ -27,6 +27,7 @@ async def request(
     retries: typing.Optional[RetriesType] = None,
     redirects: typing.Optional[RedirectsType] = None,
     # Transaction
+    server_hostname: typing.Optional[str] = None,
     timeout: typing.Optional[TimeoutType] = None,
     proxies: typing.Optional[ProxiesType] = None,
     http_versions: typing.Optional[typing.Sequence[str]] = None,
@@ -42,6 +43,7 @@ async def request(
         json=json,
         retries=retries,
         redirects=redirects,
+        server_hostname=server_hostname,
         timeout=timeout,
         proxies=proxies,
         http_versions=http_versions,

@@ -1,3 +1,4 @@
+import ssl
 import trio
 import typing
 import socket
@@ -22,12 +23,14 @@ from hip.models import (
 class TrioBackend(AsyncBackend):
     async def connect(
         self,
-        host,
-        port,
+        host: str,
+        port: int,
         *,
-        connect_timeout,
-        source_address: typing.Optional[typing.Tuple[str, int]] = None,
-        socket_options=None
+        connect_timeout: float,
+        source_address: typing.Optional[str] = None,
+        socket_options: typing.Optional[
+            typing.Iterable[typing.Tuple[int, int, int]]
+        ] = None
     ) -> "TrioSocket":
         if source_address is not None:
             # You can't really combine source_address= and happy eyeballs
@@ -43,9 +46,6 @@ class TrioBackend(AsyncBackend):
 
         return TrioSocket(stream)
 
-    async def spawn_system_task(self, task):
-        trio.hazmat.spawn_system_task(task)
-
     async def sleep(self, seconds: float) -> None:
         await trio.sleep(seconds)
 
@@ -60,7 +60,9 @@ class TrioSocket(AsyncSocket):
     def __init__(self, stream: typing.Union[trio.SocketStream, trio.SSLStream]):
         self._stream = stream
 
-    async def start_tls(self, server_hostname, ssl_context):
+    async def start_tls(
+        self, server_hostname: typing.Optional[str], ssl_context: ssl.SSLContext
+    ) -> "TrioSocket":
         wrapped = trio.SSLStream(
             self._stream,
             ssl_context,
@@ -70,18 +72,34 @@ class TrioSocket(AsyncSocket):
         await wrapped.do_handshake()
         return TrioSocket(wrapped)
 
-    def getpeercert(self, binary_form: bool = False) -> typing.Union[bytes, dict]:
+    @typing.overload
+    def getpeercert(self, binary_form: typing.Literal[True]) -> typing.Optional[bytes]:
+        ...
+
+    @typing.overload
+    def getpeercert(
+        self, binary_form: typing.Literal[False]
+    ) -> typing.Optional[typing.Dict[str, typing.Any]]:
+        ...
+
+    def getpeercert(
+        self, binary_form: bool = False
+    ) -> typing.Optional[typing.Union[bytes, typing.Dict[str, typing.Any]]]:
+        if not isinstance(self._stream, trio.SSLStream):
+            return None
         return self._stream.getpeercert(binary_form=binary_form)
 
     def http_version(self) -> typing.Optional[str]:
-        if not hasattr(self._stream, "selected_alpn_protocol"):
+        if not isinstance(self._stream, trio.SSLStream):
             return None
         return alpn_to_http_version(self._stream.selected_alpn_protocol())
 
     def tls_version(self) -> typing.Optional[TLSVersion]:
-        if not hasattr(self._stream, "version"):
+        if not isinstance(self._stream, trio.SSLStream):
             return None
-        return sslsocket_version_to_tls_version(self._stream.version())
+        # Trio doesn't have .version() attached to SSLStream.
+        version = self._stream.version()  # type: ignore
+        return sslsocket_version_to_tls_version(version)
 
     async def send_all(self, data: bytes) -> None:
         await self._stream.send_all(data)
@@ -90,11 +108,14 @@ class TrioSocket(AsyncSocket):
         return await self._stream.receive_some(utils.CHUNK_SIZE)
 
     async def send_and_receive_for_a_while(
-        self, produce_bytes, consume_bytes, read_timeout
-    ):
+        self,
+        produce_bytes: typing.Callable[[], typing.Awaitable[bytes]],
+        consume_bytes: typing.Callable[[bytes], None],
+        read_timeout: float,
+    ) -> None:
         bytes_read = trio.Event()
 
-        async def sender():
+        async def sender() -> None:
             nonlocal bytes_read
             while True:
                 try:
@@ -142,6 +163,6 @@ class TrioSocket(AsyncSocket):
         stream = self._stream
         # Strip off any layers of SSLStream
         while hasattr(stream, "transport_stream"):
-            stream = stream.transport_stream
+            stream = typing.cast(trio.SocketStream, stream.transport_stream)  # type: ignore
         # Now we have a SocketStream
-        return stream.socket
+        return stream.socket  # type: ignore
