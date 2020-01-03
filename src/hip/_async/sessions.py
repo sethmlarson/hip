@@ -146,7 +146,9 @@ class Session:
 
         # Don't calculate the 'content-type' unless there's no override.
         if "content-type" not in request.headers:
-            request.headers.setdefault("content-type", request_data.content_type)
+            request.headers.setdefault(
+                "content-type", await request_data.content_type()
+            )
 
         host = request.url.host
         pinned_cert = self.pinned_certs.get(host, None)
@@ -320,7 +322,7 @@ class Session:
             return Bytes(data)
         elif isinstance(data, str):
             return Bytes(data.encode("utf-8"))
-        elif isinstance(data, io.BinaryIO) or hasattr(data, "read"):
+        elif isinstance(data, io.IOBase) or hasattr(data, "read"):
             return File(data)
         return NoData()
 

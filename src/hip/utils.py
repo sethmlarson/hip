@@ -186,6 +186,7 @@ class TextChunker:
         return None
 
 
+@functools.lru_cache(1)
 def user_agent() -> str:
     from hip import __version__
 

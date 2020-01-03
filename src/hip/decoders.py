@@ -163,6 +163,7 @@ class MultiDecoder(Decoder):
 
 
 def get_content_decoder(content_encoding: typing.Optional[str]) -> Decoder:
+    global _has_br, _has_zstd
     if content_encoding is None:
         return IdentityDecoder()
     content_encoding = content_encoding.strip()

@@ -5,6 +5,7 @@ import typing
 import json
 import chardet
 import filetype
+import mimetypes
 from hip.models import HeadersType, Request, Headers, Response as BaseResponse
 from hip.decoders import get_content_decoder
 from hip.utils import INT_TO_URLENC, encoding_detector, TextChunker, BytesChunker
@@ -295,8 +296,7 @@ class RequestData:
         """
         raise NotImplementedError()
 
-    @property
-    def content_type(self) -> typing.Optional[str]:
+    async def content_type(self) -> typing.Optional[str]:
         raise NotImplementedError()
 
 
@@ -310,8 +310,7 @@ class NoData(RequestData):
     async def __anext__(self) -> None:
         raise StopAsyncIteration()
 
-    @property
-    def content_type(self) -> typing.Optional[str]:
+    async def content_type(self) -> typing.Optional[str]:
         return None
 
 
@@ -330,15 +329,14 @@ class Bytes(RequestData):
 
         return _inner().__aiter__()
 
-    @property
-    def content_type(self) -> str:
+    async def content_type(self) -> str:
         return "application/octet-stream"
 
 
 class File(RequestData):
     """Class representing a file-like interface"""
 
-    def __init__(self, fp: typing.BinaryIO):
+    def __init__(self, fp: io.IOBase):
         self._fp = fp
         self._content_type: typing.Optional[str]
         # Initial location of the file pointer before data
@@ -347,11 +345,22 @@ class File(RequestData):
         self._fp_end: typing.Optional[int] = None
 
     async def content_type(self) -> typing.Optional[str]:
-        if not self._fp_seekable():
+        if not hasattr(self._fp, "seek"):
             return None
+        await self._get_fp_begin()
         if not hasattr(self, "_content_type"):
             data = await self._fp_read(utils.CHUNK_SIZE)
-            self._content_type = filetype.guess(data)
+            content_type = filetype.guess_mime(data)
+
+            # Couldn't guess by the contents of the file, so
+            # we try the name of the file as a last-ditch effort.
+            if content_type is None and hasattr(self._fp, "name"):
+                try:
+                    filename = os.path.basename(str(self._fp.name))
+                    content_type, _ = mimetypes.guess_type(filename, strict=False)
+                except Exception:
+                    pass
+            self._content_type = content_type
         return self._content_type
 
     async def content_length(self) -> typing.Optional[int]:
