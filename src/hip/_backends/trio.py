@@ -2,12 +2,15 @@ import ssl
 import trio
 import typing
 import socket
+import queue
 from .base import (
     AsyncBackend,
     AsyncSocket,
+    AsyncQueue,
     AbortSendAndReceive,
     is_writable,
     BlockedUntilNextRead,
+    wrap_exceptions,
 )
 from hip import utils
 from hip.models import (
@@ -32,22 +35,51 @@ class TrioBackend(AsyncBackend):
             typing.Iterable[typing.Tuple[int, int, int]]
         ] = None
     ) -> "TrioSocket":
-        if source_address is not None:
-            # You can't really combine source_address= and happy eyeballs
-            # (can we get rid of source_address? or at least make it a source
-            # ip, no port?)
-            raise NotImplementedError(
-                "trio backend doesn't support setting source_address"
-            )
+        with wrap_exceptions(self, True):
+            if source_address is not None:
+                # You can't really combine source_address= and happy eyeballs
+                # (can we get rid of source_address? or at least make it a source
+                # ip, no port?)
+                raise NotImplementedError(
+                    "trio backend doesn't support setting source_address"
+                )
 
-        stream = await trio.open_tcp_stream(host, port)
-        for (level, optname, value) in socket_options or ():
-            stream.setsockopt(level, optname, value)
+            stream = await trio.open_tcp_stream(host, port)
+            for (level, optname, value) in socket_options or ():
+                stream.setsockopt(level, optname, value)
 
-        return TrioSocket(stream)
+            return TrioSocket(stream)
 
     async def sleep(self, seconds: float) -> None:
         await trio.sleep(seconds)
+
+    def create_queue(self, size: int) -> "TrioQueue":
+        return TrioQueue(size)
+
+
+class TrioQueue(AsyncQueue):
+    def __init__(self, size: int):
+        super().__init__(size)
+
+        self._send_channel, self._recv_channel = trio.open_memory_channel(size)
+
+    async def put(self, item: typing.Any) -> None:
+        await self._send_channel.send(item)
+
+    def put_nowait(self, item: typing.Any) -> None:
+        try:
+            self._send_channel.send_nowait(item)
+        except trio.WouldBlock:
+            raise queue.Full from None
+
+    async def get(self) -> typing.Any:
+        return await self._recv_channel.receive()
+
+    def get_nowait(self) -> typing.Any:
+        try:
+            self._recv_channel.receive_nowait()
+        except trio.WouldBlock:
+            raise queue.Empty from None
 
 
 # XX it turns out that we don't need SSLStream to be robustified against
@@ -63,14 +95,15 @@ class TrioSocket(AsyncSocket):
     async def start_tls(
         self, server_hostname: typing.Optional[str], ssl_context: ssl.SSLContext
     ) -> "TrioSocket":
-        wrapped = trio.SSLStream(
-            self._stream,
-            ssl_context,
-            server_hostname=server_hostname,
-            https_compatible=True,
-        )
-        await wrapped.do_handshake()
-        return TrioSocket(wrapped)
+        with wrap_exceptions(self, True):
+            wrapped = trio.SSLStream(
+                self._stream,
+                ssl_context,
+                server_hostname=server_hostname,
+                https_compatible=True,
+            )
+            await wrapped.do_handshake()
+            return TrioSocket(wrapped)
 
     @typing.overload
     def getpeercert(self, binary_form: typing.Literal[True]) -> typing.Optional[bytes]:
@@ -102,10 +135,12 @@ class TrioSocket(AsyncSocket):
         return sslsocket_version_to_tls_version(version)
 
     async def send_all(self, data: bytes) -> None:
-        await self._stream.send_all(data)
+        with wrap_exceptions(self, False):
+            await self._stream.send_all(data)
 
     async def receive_some(self) -> bytes:
-        return await self._stream.receive_some(utils.CHUNK_SIZE)
+        with wrap_exceptions(self, False):
+            return await self._stream.receive_some(utils.CHUNK_SIZE)
 
     async def send_and_receive_for_a_while(
         self,
@@ -142,12 +177,13 @@ class TrioSocket(AsyncSocket):
 
                 consume_bytes(incoming)
 
-        try:
-            async with trio.open_nursery() as nursery:
-                nursery.start_soon(sender)
-                nursery.start_soon(receiver, read_timeout)
-        except AbortSendAndReceive:
-            pass
+        with wrap_exceptions(self, False):
+            try:
+                async with trio.open_nursery() as nursery:
+                    nursery.start_soon(sender)
+                    nursery.start_soon(receiver, read_timeout)
+            except AbortSendAndReceive:
+                pass
 
     # We want this to be synchronous, and don't care about graceful teardown
     # of the SSL/TLS layer.

@@ -32,7 +32,7 @@ from hip.models import (
     Params,
     Headers,
 )
-from hip.cookies import CookiesType
+from hip.cookies import CookiesType, Cookies
 from hip.decoders import accept_encoding
 from hip.exceptions import RedirectLoopDetected, TooManyRedirects, HipError
 from hip.utils import user_agent
@@ -57,6 +57,7 @@ class Session:
         redirects: typing.Optional[RedirectsType] = True,
         timeout: typing.Optional[TimeoutType] = None,
         proxies: typing.Optional[ProxiesType] = None,
+        cookies: typing.Optional[CookiesType] = None,
         trust_env: bool = True,
         ca_certs: typing.Optional[CACertsType] = certifi.where(),
         pinned_certs: typing.Optional[PinnedCertsType] = None,
@@ -74,6 +75,7 @@ class Session:
         self.redirects = redirects
         self.timeout = timeout
         self.proxies = proxies
+        self.cookies = Cookies(cookies)
         self.trust_env = trust_env
 
         self.ca_certs = ca_certs
@@ -155,6 +157,12 @@ class Session:
         visited_urls = {request.url}
 
         while True:
+            # Apply the 'Cookie' header, need to apply within
+            # the loop so a redirect can have cookies set / updated.
+            cookie_header = self.cookies.get_cookie_header(request)
+            if cookie_header:
+                request.headers.setdefault("cookie", cookie_header)
+
             # This section doesn't have a response associated with it
             # so we only add the Request to the potential HipError.
             try:
@@ -179,6 +187,9 @@ class Session:
             # By this point we've received a response so we
             # add that to any potential exceptions too.
             try:
+                # Extract cookies from the response
+                self.cookies.extract_cookies_to_jar(resp)
+
                 # For now we add the individual responses' 1XX
                 # history to the global response_history and clear
                 # response.history. It'll be added back if this is
@@ -188,6 +199,11 @@ class Session:
                 resp.history = []
 
                 if redirects is not False and resp.is_redirect:
+                    if isinstance(redirects, int):
+                        if redirects == 0:
+                            raise TooManyRedirects("too many redirects")
+                        redirects -= 1
+
                     # This redirect is not the final response
                     # so we add it to the history.
                     response_history.append(
@@ -198,17 +214,15 @@ class Session:
                             request=resp.request,
                         )
                     )
-                    if isinstance(redirects, int):
-                        if redirects == 0:
-                            raise TooManyRedirects("too many redirects")
-                        redirects -= 1
 
                     # Drain the response
                     await resp.close()
 
+                    # Create the request to be sent to the redirected URL
+                    redirect_request = await self.prepare_redirect(request, resp)
+
                     # Detect when we've already been redirected to a URL before
                     # and if we're redirected again then complain.
-                    redirect_request = await self.prepare_redirect(request, resp)
                     if redirect_request.url in visited_urls:
                         # Create a list of URLs that we visited to reach this loop
                         # to display to the user.
@@ -229,6 +243,7 @@ class Session:
                 if e.request is None:
                     e.request = request
                 if e.response is None:
+                    resp.history = response_history
                     e.response = resp
                 raise
 
@@ -345,9 +360,7 @@ class Session:
 
     def prepare_params(self, request: Request, params: Params) -> Params:
         """Merges params from the request and the kwarg"""
-        print(request.url.params)
         merged_params = Params(request.url.params)
-        print(merged_params)
         for k in params:
             merged_params.pop(k, None)
         for k, v in params.items():

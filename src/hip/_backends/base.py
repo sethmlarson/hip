@@ -1,8 +1,19 @@
+import contextlib
 import typing
 import ssl
 import socket
 from .wait import wait_for_read, wait_for_write
-from hip.models import TLSVersion
+from hip.models import TLSVersion, peercert_info
+from hip.exceptions import (
+    ReadTimeout,
+    ConnectTimeout,
+    TLSError,
+    CertificateError,
+    CertificateHostnameMismatch,
+    SelfSignedCertificate,
+    NameResolutionError,
+    ExpiredCertificate,
+)
 
 
 SocketOptionsType = typing.Iterable[typing.Tuple[int, int, int]]
@@ -24,6 +35,32 @@ def is_writable(sock: socket.socket) -> bool:
     return wait_for_write(sock, timeout=0)
 
 
+@contextlib.contextmanager
+def wrap_exceptions(sock: typing.Any, is_connect: bool) -> None:
+    """Wraps socket and TLS exceptions into hip.HipErrors."""
+    try:
+        yield
+    except socket.gaierror as e:
+        raise NameResolutionError("dns error") from e
+    except socket.timeout as e:
+        if is_connect:
+            raise ConnectTimeout("connect timeout", error=e) from e
+        else:
+            raise ReadTimeout("read timeout", error=e) from e
+    except ssl.SSLCertVerificationError as e:
+        msg = str(e).lower()
+        if "self" in msg and "signed" in msg:
+            raise SelfSignedCertificate("self signed", error=e) from e
+        elif "hostname" in msg and "mismatch" in msg:
+            raise CertificateHostnameMismatch("hostname mismatch", error=e) from e
+        elif "expired" in msg:
+            raise ExpiredCertificate("cert is expired") from e
+        else:
+            raise CertificateError("cert error") from e
+    except ssl.SSLError as e:
+        raise TLSError("tls error") from e
+
+
 class AsyncBackend:
     async def connect(
         self,
@@ -39,6 +76,26 @@ class AsyncBackend:
         ...
 
     async def sleep(self, seconds: float) -> None:
+        ...
+
+    def create_queue(self, size: int) -> "AsyncQueue":
+        ...
+
+
+class AsyncQueue:
+    def __init__(self, size: int):
+        ...
+
+    async def put(self, item: typing.Any) -> None:
+        ...
+
+    def put_nowait(self, item: typing.Any) -> None:
+        ...
+
+    async def get(self) -> typing.Any:
+        ...
+
+    def get_nowait(self) -> typing.Any:
         ...
 
 

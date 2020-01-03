@@ -3,11 +3,12 @@ import ssl
 import typing
 import os
 import enum
-import secrets
+import random
 import codecs
 import pathlib
 import hmac
 import hashlib
+import asn1crypto.x509
 from urllib.parse import urljoin, urlparse, urlencode, parse_qsl
 from .utils import parse_mimetype, is_known_encoding, pretty_fingerprint, none_is_inf
 from .exceptions import HTTPError, URLError, CertificateFingerprintMismatch
@@ -277,11 +278,15 @@ class MultiMapping(typing.Generic[KT, VT, NormKT, NormVT]):
 
     get = get_one
 
-    def get_all(self, key: KT) -> typing.List[NormVT]:
+    def get_all(
+        self, key: KT, default: typing.Optional[typing.List[NormVT]] = None
+    ) -> typing.List[NormVT]:
+        if default is None:
+            default = []
         try:
             return [x[1] for x in self._internal[self._normalize_key(key)]]
         except KeyError:
-            return []
+            return default
 
     def pop_one(
         self, key: KT, default: typing.Optional[VT] = None
@@ -334,6 +339,9 @@ class MultiMapping(typing.Generic[KT, VT, NormKT, NormVT]):
     def copy(self):
         return type(self)([(k, v) for k, v in self.items()])
 
+    def __bool__(self) -> bool:
+        return len(self._internal) > 0
+
     def __contains__(self, item: KT) -> bool:
         return bool(self._internal.get(self._normalize_key(item), None))
 
@@ -384,15 +392,7 @@ class Headers(
         return "; ".join([x for x in self.get_all(key) if x is not None])
 
     def __repr__(self) -> str:
-        # Smart repr that switches to list-of-tuple mode when
-        # multiple values for one key are detected. Most of the
-        # time it's easier to read the dictionary.
-        if any(len(x) > 1 for x in self._internal.values()):
-            internal_repr = repr([(k, v) for k, v in self.items()])
-        else:
-            # Note the unpacking within (k, v),
-            internal_repr = repr({k: v for (k, v), in self._internal.values()})
-        return f"<Headers {internal_repr}>"
+        return f"<Headers {[(k, v) for k, v in self.items()]!r}>"
 
     __str__ = __repr__
 
@@ -505,6 +505,8 @@ class Response:
 
     @property
     def content_length(self) -> typing.Optional[int]:
+        if self.request and self.request.method == "HEAD":
+            return 0
         if "content-length" in self.headers:
             values = self.headers.get_all("content-length")
             if len(set(values)) == 1 and values[0].isdigit():
@@ -519,7 +521,7 @@ class Response:
         To be a redirect it must be a redirect status code and also
         have a valid 'Location' header.
         """
-        return self.status_code in REDIRECT_STATUSES and "Location" in self.headers
+        return self.status_code in REDIRECT_STATUSES and "location" in self.headers
 
     @property
     def headers(self) -> Headers:
@@ -674,7 +676,7 @@ def create_ssl_context(
 
     # If we're going to be checking a pinned cert fingerprint
     # then disable certificate verification. Will be
-    # verified with verify_pinned_cert()
+    # verified with verify_peercert_fingerprint()
     if pinned_cert:
         ctx.verify_mode = ssl.CERT_NONE
         ctx.check_hostname = False
@@ -718,6 +720,25 @@ def sslsocket_version_to_tls_version(
         return TLSVersion.TLSv1_3
     else:
         raise ValueError(f"unknown tls versiom '{version}'")
+
+
+class PeerCertInfo(typing.NamedTuple):
+    domain_names: typing.Tuple[str, ...]
+    ip_addresses: typing.Tuple[str, ...]
+    sha256_fingerprint: str
+
+
+def peercert_info(peercert: bytes) -> typing.Optional[PeerCertInfo]:
+    """Parses binary peer certificate into the components we care about"""
+    try:
+        cert: asn1crypto.x509.Certificate = asn1crypto.x509.Certificate.load(peercert)
+        return PeerCertInfo(
+            domain_names=tuple(cert.valid_domains),
+            ip_addresses=tuple(cert.valid_ips),
+            sha256_fingerprint=hashlib.sha256(peercert).hexdigest(),
+        )
+    except Exception:
+        return None
 
 
 def verify_peercert_fingerprint(
@@ -772,22 +793,25 @@ class Retry:
         # Methods which are allowed to be retried (idempotent).
         retryable_methods: typing.Collection[str] = DEFAULT_RETRYABLE_METHODS,
         # Status codes that must be retried.
-        retryable_status_codes: typing.Collection[int] = (),
+        retryable_status_codes: typing.Collection[
+            int
+        ] = DEFAULT_RETRY_AFTER_STATUS_CODES,
         # Set a maximum value for 'Retry-After' where we send the request anyways.
         max_retry_after: typing.Optional[float] = 30.0,
         # Back-offs to not overwhelm a service experiencing
         # temporary errors and give time to recover.
         backoff_factor: float = 0.0,
-        backoff_jitter: float = 0.0,
+        backoff_jitter: float = 1.0,
         max_backoff: typing.Optional[float] = 0.0,
         # Number of total times a request has been retried before
         # receiving a non-error response (less than 400) or received
         # a retryable error / timeout. This value gets reset to 0 by
-        # .performed_http_redirect().
+        # .reset_backoff_counter().
         _backoff_counter: int = 0,
     ):
         self.total_retries = total_retries
         self.connect_retries = connect_retries
+        self.read_retries = read_retries
         self.response_retries = response_retries
         self.retryable_methods = retryable_methods
         self.retryable_status_codes = retryable_status_codes
@@ -841,7 +865,6 @@ class Retry:
         connect: bool = False,
         read: bool = False,
         response: typing.Optional[Response] = None,
-        error: typing.Optional[Exception] = None,
     ) -> None:
         """Increments the Retry instance down by the given values.
         """
@@ -851,6 +874,19 @@ class Retry:
         by the 'Session' object to not modify the Session object's instance
         used for configuration.
         """
+        return Retry(
+            total_retries=self.total_retries,
+            connect_retries=self.connect_retries,
+            read_retries=self.read_retries,
+            response_retries=self.response_retries,
+            retryable_methods=self.retryable_methods,
+            retryable_status_codes=self.retryable_status_codes,
+            max_retry_after=self.max_retry_after,
+            backoff_factor=self.backoff_factor,
+            backoff_jitter=self.backoff_jitter,
+            max_backoff=self.max_backoff,
+            _backoff_counter=self._backoff_counter,
+        )
 
     def _delay_backoff(self) -> float:
         max_backoff = none_is_inf(self.max_backoff)
@@ -862,8 +898,8 @@ class Retry:
         # is optimal for this case.
         jitter_factor = 1.0
         if self.backoff_jitter > 0.0:
-            jitter_factor = (1.0 - self.backoff_jitter) + secrets.randbelow(
-                self.backoff_jitter
+            jitter_factor = (1.0 - self.backoff_jitter) + (
+                random.random() * self.backoff_jitter
             )
 
         backoff: float = (

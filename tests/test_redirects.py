@@ -16,6 +16,11 @@ async def test_single_redirect():
 
     assert len(resp.history) == 1
     redirect_resp = resp.history[0]
+    print(
+        redirect_resp.request.url,
+        redirect_resp.request.method,
+        redirect_resp.request.headers,
+    )
     assert resp.request.url == redirect_resp.headers["location"]
     assert redirect_resp.status_code == 302
     assert redirect_resp.request.method == "GET"
@@ -43,13 +48,14 @@ async def test_error_on_redirect():
             "GET", "https://httpbin.org/absolute-redirect/1", redirects=0
         )
 
-    assert e.value.request.method == "GET"
-    assert e.value.request.url == "https://httpbin.org/absolute-redirect/1"
+    err = e.value
+    assert err.request.method == "GET"
+    assert err.request.url == "https://httpbin.org/absolute-redirect/1"
 
     # The too-many-redirects error should have the redirect response attached
-    assert e.value.response.status_code == 302
-    assert e.value.response.headers["location"] == "http://httpbin.org/get"
-    assert e.value.response.history == []
+    assert err.response.status_code == 302
+    assert err.response.headers["location"] == "http://httpbin.org/get"
+    assert err.response.history == []
 
 
 @pytest.mark.trio
@@ -70,6 +76,7 @@ async def test_n_plus_one_redirects():
             "GET", "https://httpbin.org/absolute-redirect/10", redirects=9
         )
 
-    assert e.value.response.status_code == 302
-    assert e.value.response.headers["location"] == "http://httpbin.org/get"
-    assert len(e.value.response.history) == 9
+    err = e.value
+    assert err.response.status_code == 302
+    assert err.response.headers["location"] == "http://httpbin.org/get"
+    assert len(err.response.history) == 9

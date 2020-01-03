@@ -187,7 +187,7 @@ def accept_encoding() -> str:
     """
     delimiter = ", "
     accept_enc = ["gzip", "deflate"]
-    if brotli is not None:
+    if _has_br:
         accept_enc.append("br")
     if _has_zstd:
         delimiter = ","

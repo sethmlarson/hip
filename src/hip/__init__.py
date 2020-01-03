@@ -21,6 +21,7 @@ from .exceptions import (
     CertificateHostnameMismatch,
     SelfSignedCertificate,
     CertificateFingerprintMismatch,
+    ExpiredCertificate,
     URLError,
 )
 from .models import (
@@ -76,6 +77,7 @@ __all__ = [
     "ConnectTimeout",
     "RemoteProtocolError",
     "SelfSignedCertificate",
+    "ExpiredCertificate",
     "TimeoutError",
     "TooManyRetries",
     "UnrewindableBodyError",

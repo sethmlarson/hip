@@ -124,6 +124,12 @@ class SelfSignedCertificate(CertificateError):
     """
 
 
+class ExpiredCertificate(CertificateError):
+    """Certificate is expired, display the system time to the user
+    so if it differs from what they expect they can fix easily.
+    """
+
+
 class CertificateFingerprintMismatch(CertificateError):
     """The certificate fingerprint doesn't match the previous value."""
 
