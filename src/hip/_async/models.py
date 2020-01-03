@@ -427,8 +427,7 @@ class JSON(RequestData):
 
         return _inner().__aiter__()
 
-    @property
-    def content_type(self) -> str:
+    async def content_type(self) -> str:
         return "application/json"
 
     def _encode_json(self) -> bytes:
