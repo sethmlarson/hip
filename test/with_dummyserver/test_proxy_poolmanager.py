@@ -30,10 +30,10 @@ class TestHTTPProxyManager(HTTPDummyProxyTestCase):
     def test_basic_proxy(self):
         with proxy_from_url(self.proxy_url, ca_certs=DEFAULT_CA) as http:
             r = http.request("GET", "%s/" % self.http_url)
-            assert r.status == 200
+            assert r.status_code == 200
 
             r = http.request("GET", "%s/" % self.https_url)
-            assert r.status == 200
+            assert r.status_code == 200
 
     def test_nagle_proxy(self):
         """ Test that proxy connections do not have TCP_NODELAY turned on """
@@ -69,10 +69,10 @@ class TestHTTPProxyManager(HTTPDummyProxyTestCase):
             connection_from_url(self.proxy_url), ca_certs=DEFAULT_CA
         ) as http:
             r = http.request("GET", "%s/" % self.http_url)
-            assert r.status == 200
+            assert r.status_code == 200
 
             r = http.request("GET", "%s/" % self.https_url)
-            assert r.status == 200
+            assert r.status_code == 200
 
     def test_proxy_verified(self):
         with proxy_from_url(
@@ -112,7 +112,7 @@ class TestHTTPProxyManager(HTTPDummyProxyTestCase):
                 redirect=False,
             )
 
-            assert r.status == 303
+            assert r.status_code == 303
 
             r = http.request(
                 "GET",
@@ -120,7 +120,7 @@ class TestHTTPProxyManager(HTTPDummyProxyTestCase):
                 fields={"target": "%s/" % self.http_url},
             )
 
-            assert r.status == 200
+            assert r.status_code == 200
             assert r.data == b"Dummy server!"
 
     def test_cross_host_redirect(self):
@@ -330,10 +330,10 @@ class TestHTTPProxyManager(HTTPDummyProxyTestCase):
         """Assert that upper-case schemes and hosts are normalized."""
         with proxy_from_url(self.proxy_url.upper(), ca_certs=DEFAULT_CA) as http:
             r = http.request("GET", "%s/" % self.http_url.upper())
-            assert r.status == 200
+            assert r.status_code == 200
 
             r = http.request("GET", "%s/" % self.https_url.upper())
-            assert r.status == 200
+            assert r.status_code == 200
 
 
 class TestIPv6HTTPProxyManager(IPv6HTTPDummyProxyTestCase):
@@ -349,7 +349,7 @@ class TestIPv6HTTPProxyManager(IPv6HTTPDummyProxyTestCase):
     def test_basic_ipv6_proxy(self):
         with proxy_from_url(self.proxy_url, ca_certs=DEFAULT_CA) as http:
             r = http.request("GET", "%s/" % self.http_url)
-            assert r.status == 200
+            assert r.status_code == 200
 
             r = http.request("GET", "%s/" % self.https_url)
-            assert r.status == 200
+            assert r.status_code == 200

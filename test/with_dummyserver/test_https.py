@@ -94,7 +94,7 @@ class TestHTTPS(HTTPSDummyServerTestCase):
 
     def test_simple(self):
         r = self._pool.request("GET", "/")
-        assert r.status == 200, r.data
+        assert r.status_code == 200, r.data
 
     @fails_on_travis_gce
     def test_dotted_fqdn(self):
@@ -102,7 +102,7 @@ class TestHTTPS(HTTPSDummyServerTestCase):
             self.host + ".", self.port, ca_certs=DEFAULT_CA
         ) as pool:
             r = pool.request("GET", "/")
-            assert r.status == 200, r.data
+            assert r.status_code == 200, r.data
 
     def test_client_intermediate(self, certs_dir):
         """Check that certificate chains work well with client certs
@@ -192,7 +192,7 @@ class TestHTTPS(HTTPSDummyServerTestCase):
         ) as https_pool:
             with mock.patch("warnings.warn") as warn:
                 r = https_pool.request("GET", "/")
-                assert r.status == 200
+                assert r.status_code == 200
 
                 # Modern versions of Python, or systems using PyOpenSSL, don't
                 # emit warnings.
@@ -217,7 +217,7 @@ class TestHTTPS(HTTPSDummyServerTestCase):
         with HTTPSConnectionPool(self.host, self.port, ssl_context=ctx) as https_pool:
             with mock.patch("warnings.warn") as warn:
                 r = https_pool.request("GET", "/")
-                assert r.status == 200
+                assert r.status_code == 200
 
                 # Modern versions of Python, or systems using PyOpenSSL, don't
                 # emit warnings.
@@ -243,7 +243,7 @@ class TestHTTPS(HTTPSDummyServerTestCase):
         ) as https_pool:
             with mock.patch("warnings.warn") as warn:
                 r = https_pool.request("GET", "/")
-                assert r.status == 200
+                assert r.status_code == 200
 
                 # Modern versions of Python, or systems using PyOpenSSL, don't
                 # emit warnings.
@@ -276,7 +276,7 @@ class TestHTTPS(HTTPSDummyServerTestCase):
         ) as https_pool:
             with mock.patch("warnings.warn") as warn:
                 r = https_pool.request("GET", "/")
-                assert r.status == 200
+                assert r.status_code == 200
                 assert not warn.called, warn.call_args_list
 
     def test_invalid_common_name(self):
@@ -328,7 +328,7 @@ class TestHTTPS(HTTPSDummyServerTestCase):
         with HTTPSConnectionPool(self.host, self.port, cert_reqs=ssl.CERT_NONE) as pool:
             with mock.patch("warnings.warn") as warn:
                 r = pool.request("GET", "/")
-                assert r.status == 200
+                assert r.status_code == 200
                 assert warn.called
 
                 # Modern versions of Python, or systems using PyOpenSSL, only emit
@@ -343,7 +343,7 @@ class TestHTTPS(HTTPSDummyServerTestCase):
         ) as pool:
             with mock.patch("warnings.warn") as warn:
                 r = pool.request("GET", "/")
-                assert r.status == 200
+                assert r.status_code == 200
                 assert warn.called
 
                 # Modern versions of Python, or systems using PyOpenSSL, only emit
@@ -571,7 +571,7 @@ class TestHTTPS(HTTPSDummyServerTestCase):
             assert_fingerprint=fingerprint,
         ) as https_pool:
             r = https_pool.urlopen("GET", "/")
-            assert r.status == 200
+            assert r.status_code == 200
 
     @onlyPy279OrNewer
     def test_ssl_correct_system_time(self):
@@ -607,7 +607,7 @@ class TestHTTPS(HTTPSDummyServerTestCase):
 
         self._pool.ssl_version = self.certs["ssl_version"]
         r = self._pool.request("GET", "/")
-        assert r.status == 200, r.data
+        assert r.status_code == 200, r.data
 
     def test_set_cert_default_cert_required(self):
         pool = HTTPSConnectionPool(self.host, self.port, ca_certs=DEFAULT_CA)
@@ -659,7 +659,7 @@ class TestHTTPS_NoSAN:
                 no_san_server.host, no_san_server.port, ca_certs=no_san_server.ca_certs
             ) as https_pool:
                 r = https_pool.request("GET", "/")
-                assert r.status == 200
+                assert r.status_code == 200
                 assert warn.called
 
 
@@ -677,7 +677,7 @@ class TestHTTPS_IPSAN(HTTPSDummyServerTestCase):
             "127.0.0.1", self.port, cert_reqs="CERT_REQUIRED", ca_certs=DEFAULT_CA
         ) as https_pool:
             r = https_pool.request("GET", "/")
-            assert r.status == 200
+            assert r.status_code == 200
 
 
 class TestHTTPS_IPv6Addr(IPV6HTTPSDummyServerTestCase):
@@ -690,7 +690,7 @@ class TestHTTPS_IPv6Addr(IPV6HTTPSDummyServerTestCase):
             "[::1]", self.port, cert_reqs="CERT_REQUIRED", ca_certs=IPV6_ADDR_CA
         ) as https_pool:
             r = https_pool.request("GET", "/")
-            assert r.status == 200
+            assert r.status_code == 200
 
 
 class TestHTTPS_IPV6SAN(IPV6HTTPSDummyServerTestCase):
@@ -707,4 +707,4 @@ class TestHTTPS_IPV6SAN(IPV6HTTPSDummyServerTestCase):
             "[::1]", self.port, cert_reqs="CERT_REQUIRED", ca_certs=IPV6_SAN_CA
         ) as https_pool:
             r = https_pool.request("GET", "/")
-            assert r.status == 200
+            assert r.status_code == 200

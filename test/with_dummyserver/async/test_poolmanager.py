@@ -14,11 +14,11 @@ class TestPoolManager:
                 fields={"target": "%s/" % base_url},
                 redirect=False,
             )
-            assert r.status == 303
+            assert r.status_code == 303
 
             r = await http.request(
                 "GET", "%s/redirect" % base_url, fields={"target": "%s/" % base_url}
             )
 
-            assert r.status == 200
+            assert r.status_code == 200
             assert r.data == b"Dummy server!"

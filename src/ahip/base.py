@@ -9,7 +9,7 @@ they do not include any extra function required for asynchrony: that
 functionality is handled elsewhere. Any part of Hip is required to be able
 to work with one of these objects.
 """
-from ._collections import HTTPHeaderDict
+from ._collections import Headers
 
 
 # This dictionary is used to store the default ports for specific schemes to
@@ -39,7 +39,7 @@ class Request(object):
         self.target = target
 
         #: The request headers. These are always stored as a HTTPHeaderDict.
-        self.headers = HTTPHeaderDict(headers)
+        self.headers = Headers(headers)
 
         #: The request body. This is allowed to be one a few kind of objects:
         #:    - A byte string.
@@ -72,7 +72,7 @@ class Request(object):
             else:
                 header = "{}:{}".format(host, port)
 
-            headers = HTTPHeaderDict(host=header)
+            headers = Headers(host=header)
             headers._copy_from(self.headers)
             self.headers = headers
 
@@ -90,7 +90,7 @@ class Response(object):
         self.status_code = status_code
 
         #: The headers on the response, as a HTTPHeaderDict.
-        self.headers = HTTPHeaderDict(headers)
+        self.headers = Headers(headers)
 
         #: The request body. This is an iterable of bytes, and *must* be
         #: iterated if the connection is to be preserved.

@@ -348,13 +348,13 @@ class TestSocketClosing(SocketDummyServerTestCase):
         self._start_server(socket_handler)
         with HTTPConnectionPool(self.host, self.port) as pool:
             response = pool.request("GET", "/", retries=0)
-            assert response.status == 200
+            assert response.status_code == 200
             assert response.data == b"Response 0"
 
             done_closing.wait()  # wait until the socket in our pool gets closed
 
             response = pool.request("GET", "/", retries=0)
-            assert response.status == 200
+            assert response.status_code == 200
             assert response.data == b"Response 1"
 
     def test_connection_refused(self):
@@ -474,7 +474,7 @@ class TestSocketClosing(SocketDummyServerTestCase):
             t = Timeout(connect=SHORT_TIMEOUT, read=LONG_TIMEOUT)
             with HTTPConnectionPool(self.host, self.port, timeout=t) as pool:
                 response = pool.request("GET", "/", retries=1)
-                assert response.status == 200
+                assert response.status_code == 200
                 assert response.data == b"Response 2"
         finally:
             socket.setdefaulttimeout(default_timeout)
@@ -623,7 +623,7 @@ class TestSocketClosing(SocketDummyServerTestCase):
         with HTTPConnectionPool(self.host, self.port) as pool:
             retry = Retry(read=1)
             response = pool.request("GET", "/", retries=retry)
-            assert response.status == 200
+            assert response.status_code == 200
             assert response.data == b"foo"
 
     def test_dont_tolerate_bad_versions(self):
@@ -830,7 +830,7 @@ class TestSocketClosing(SocketDummyServerTestCase):
         self._start_server(socket_handler)
         with HTTPConnectionPool(self.host, self.port) as pool:
             response = pool.request("GET", "/", retries=0, preload_content=False)
-            assert response.status == 200
+            assert response.status_code == 200
             response.close()
 
             done_closing.set()  # wait until the socket in our pool gets closed
@@ -951,7 +951,7 @@ class TestSocketClosing(SocketDummyServerTestCase):
             response = pool.request("POST", "/", body=body_uploader(), retries=0)
 
             # Only the first data should have been received by the server.
-            assert response.status == 400
+            assert response.status_code == 400
             assert response.data == b"a\r\nfirst data\r\n"
 
 
@@ -980,7 +980,7 @@ class TestProxyManager(SocketDummyServerTestCase):
         with proxy_from_url(base_url) as proxy:
             r = proxy.request("GET", "http://google.com/")
 
-            assert r.status == 200
+            assert r.status_code == 200
             # FIXME: The order of the headers is not predictable right now. We
             # should fix that someday (maybe when we migrate to
             # OrderedDict/MultiDict).
@@ -1023,7 +1023,7 @@ class TestProxyManager(SocketDummyServerTestCase):
 
             r = conn.urlopen("GET", "http://www.google.com/")
 
-            assert r.status == 200
+            assert r.status_code == 200
             # FIXME: The order of the headers is not predictable right now. We
             # should fix that someday (maybe when we migrate to
             # OrderedDict/MultiDict).
@@ -1063,7 +1063,7 @@ class TestProxyManager(SocketDummyServerTestCase):
             conn = proxy.connection_from_url("http://www.google.com")
 
             r = conn.urlopen("GET", "http://www.google.com", retries=1)
-            assert r.status == 200
+            assert r.status_code == 200
 
             close_event.wait(timeout=LONG_TIMEOUT)
             with pytest.raises(ProxyError):
@@ -1127,9 +1127,9 @@ class TestProxyManager(SocketDummyServerTestCase):
             url = "https://{0}".format(self.host)
             conn = proxy.connection_from_url(url)
             r = conn.urlopen("GET", url, retries=0)
-            assert r.status == 200
+            assert r.status_code == 200
             r = conn.urlopen("GET", url, retries=0)
-            assert r.status == 200
+            assert r.status_code == 200
 
     def test_connect_failing(self):
         def handler(listener):
@@ -1204,7 +1204,7 @@ class TestProxyManager(SocketDummyServerTestCase):
             conn = proxy.connection_from_url(url)
             try:
                 r = conn.urlopen("GET", url, retries=0)
-                assert r.status == 200
+                assert r.status_code == 200
             except MaxRetryError:
                 self.fail("Invalid IPv6 format in HTTP CONNECT request")
 
@@ -1874,7 +1874,7 @@ class TestAutomaticHeaderInsertion(SocketDummyServerTestCase):
         with HTTPConnectionPool(self.host, self.port) as conn:
             myfileobj = io.BytesIO(b"helloworld")
             response = conn.request("POST", url="/", body=myfileobj)
-            assert response.status == 200
+            assert response.status_code == 200
 
             # Confirm we auto chunked the body.
             assert b"transfer-encoding: chunked\r\n" in data[0]

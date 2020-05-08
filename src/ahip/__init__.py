@@ -5,6 +5,7 @@ import warnings
 
 from .connectionpool import HTTPConnectionPool, HTTPSConnectionPool, connection_from_url
 
+from ._collections import Headers as Headers
 from . import exceptions
 from .filepost import encode_multipart_formdata
 from .poolmanager import PoolManager, ProxyManager, proxy_from_url
@@ -31,6 +32,7 @@ __all__ = [
     "HTTPResponse",
     "Retry",
     "Timeout",
+    "Headers",
     "add_stderr_logger",
     "connection_from_url",
     "disable_warnings",

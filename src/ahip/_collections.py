@@ -1,5 +1,8 @@
 from __future__ import absolute_import
 
+import sys
+from .packages.six import iterkeys, itervalues
+
 try:
     from collections.abc import Mapping, MutableMapping
 except ImportError:
@@ -16,11 +19,14 @@ except ImportError:  # Platform-specific: No threads available
             pass
 
 
-from collections import OrderedDict
-from .packages.six import iterkeys, itervalues, PY3
+# Dictionary ordering is a language feature in Python 3.7+
+if sys.version_info >= (3, 7):
+    OrderedDict = dict
+else:
+    from collections import OrderedDict
 
 
-__all__ = ["RecentlyUsedContainer", "HTTPHeaderDict"]
+__all__ = ["RecentlyUsedContainer", "Headers"]
 
 
 _Null = object()
@@ -102,7 +108,7 @@ class RecentlyUsedContainer(MutableMapping):
             return list(iterkeys(self._container))
 
 
-class HTTPHeaderDict(MutableMapping):
+class Headers(MutableMapping):
     """
     :param headers:
         An iterable of field-value pairs. Must not contain multiple field names
@@ -126,7 +132,7 @@ class HTTPHeaderDict(MutableMapping):
     constructor or ``.update``, the behavior is undefined and some will be
     lost.
 
-    >>> headers = HTTPHeaderDict()
+    >>> headers = Headers()
     >>> headers.add('Set-Cookie', 'foo=bar')
     >>> headers.add('set-cookie', 'baz=quxx')
     >>> headers['content-length'] = '7'
@@ -137,10 +143,10 @@ class HTTPHeaderDict(MutableMapping):
     """
 
     def __init__(self, headers=None, **kwargs):
-        super(HTTPHeaderDict, self).__init__()
+        super(Headers, self).__init__()
         self._container = OrderedDict()
         if headers is not None:
-            if isinstance(headers, HTTPHeaderDict):
+            if isinstance(headers, Headers):
                 self._copy_from(headers)
             else:
                 self.extend(headers)
@@ -166,16 +172,12 @@ class HTTPHeaderDict(MutableMapping):
             return False
         if not isinstance(other, type(self)):
             other = type(self)(other)
-        return dict((k.lower(), v) for k, v in self.itermerged()) == dict(
-            (k.lower(), v) for k, v in other.itermerged()
+        return dict((k.lower(), v) for k, v in self.items_folded()) == dict(
+            (k.lower(), v) for k, v in other.items_folded()
         )
 
     def __ne__(self, other):
         return not self.__eq__(other)
-
-    if not PY3:  # Python 2
-        iterkeys = MutableMapping.iterkeys
-        itervalues = MutableMapping.itervalues
 
     __marker = object()
 
@@ -204,6 +206,30 @@ class HTTPHeaderDict(MutableMapping):
             del self[key]
             return value
 
+    pop_one = pop
+
+    def pop_all(self, key, default=__marker):
+        try:
+            vals = self._container[key.lower()]
+        except KeyError:
+            if default is self.__marker:
+                return []
+            return default
+        else:
+            del self[key]
+            return vals[1:]
+
+    def pop_folded(self, key, default=__marker):
+        try:
+            vals = self._container[key.lower()]
+        except KeyError:
+            if default is self.__marker:
+                raise
+            return default
+        else:
+            del self[key]
+            return ", ".join(vals[1:])
+
     def discard(self, key):
         try:
             del self[key]
@@ -214,7 +240,7 @@ class HTTPHeaderDict(MutableMapping):
         """Adds a (name, value) pair, doesn't overwrite the value if it already
         exists.
 
-        >>> headers = HTTPHeaderDict(foo='bar')
+        >>> headers = Headers(foo='bar')
         >>> headers.add('Foo', 'baz')
         >>> headers['foo']
         'bar, baz'
@@ -238,8 +264,8 @@ class HTTPHeaderDict(MutableMapping):
             )
         other = args[0] if len(args) >= 1 else ()
 
-        if isinstance(other, HTTPHeaderDict):
-            for key, val in other.iteritems():
+        if isinstance(other, Headers):
+            for key, val in other.items():
                 self.add(key, val)
         elif isinstance(other, Mapping):
             for key in other:
@@ -254,7 +280,9 @@ class HTTPHeaderDict(MutableMapping):
         for key, value in kwargs.items():
             self.add(key, value)
 
-    def getlist(self, key, default=__marker):
+    get_one = MutableMapping.get
+
+    def get_all(self, key, default=__marker):
         """Returns a list of all the values for the named field. Returns an
         empty list if the key doesn't exist."""
         try:
@@ -266,16 +294,17 @@ class HTTPHeaderDict(MutableMapping):
         else:
             return vals[1:]
 
-    # Backwards compatibility for httplib
-    getheaders = getlist
-    getallmatchingheaders = getlist
-    iget = getlist
-
-    # Backwards compatibility for http.cookiejar
-    get_all = getlist
+    def get_folded(self, key, default=__marker):
+        try:
+            val = self._container[key.lower()]
+            return ", ".join(val[1:])
+        except KeyError:
+            if default is self.__marker:
+                raise
+            return default
 
     def __repr__(self):
-        return "%s(%s)" % (type(self).__name__, dict(self.itermerged()))
+        return "<%s %s>" % (type(self).__name__, dict(self.items_folded()))
 
     def _copy_from(self, other):
         for key in other:
@@ -290,18 +319,14 @@ class HTTPHeaderDict(MutableMapping):
         clone._copy_from(self)
         return clone
 
-    def iteritems(self):
-        """Iterate over all header lines, including duplicate ones."""
+    def items(self):
         for key in self:
             vals = self._container[key.lower()]
             for val in vals[1:]:
                 yield vals[0], val
 
-    def itermerged(self):
+    def items_folded(self):
         """Iterate over all headers, merging duplicate ones together."""
         for key in self:
             val = self._container[key.lower()]
             yield val[0], ", ".join(val[1:])
-
-    def items(self):
-        return list(self.iteritems())

@@ -202,23 +202,23 @@ class TestConnectionPool(HTTPDummyServerTestCase):
 
     def test_get(self):
         r = self.pool.request("GET", "/specific_method", fields={"method": "GET"})
-        assert r.status == 200, r.data
+        assert r.status_code == 200, r.data
 
     def test_post_url(self):
         r = self.pool.request("POST", "/specific_method", fields={"method": "POST"})
-        assert r.status == 200, r.data
+        assert r.status_code == 200, r.data
 
     def test_urlopen_put(self):
         r = self.pool.urlopen("PUT", "/specific_method?method=PUT")
-        assert r.status == 200, r.data
+        assert r.status_code == 200, r.data
 
     def test_wrong_specific_method(self):
         # To make sure the dummy server is actually returning failed responses
         r = self.pool.request("GET", "/specific_method", fields={"method": "POST"})
-        assert r.status == 400, r.data
+        assert r.status_code == 400, r.data
 
         r = self.pool.request("POST", "/specific_method", fields={"method": "GET"})
-        assert r.status == 400, r.data
+        assert r.status_code == 400, r.data
 
     def test_upload(self):
         data = "I'm in ur multipart form-data, hazing a cheezburgr"
@@ -230,7 +230,7 @@ class TestConnectionPool(HTTPDummyServerTestCase):
         }
 
         r = self.pool.request("POST", "/upload", fields=fields)
-        assert r.status == 200, r.data
+        assert r.status_code == 200, r.data
 
     def test_one_name_multiple_values(self):
         fields = [("foo", "a"), ("foo", "b")]
@@ -266,7 +266,7 @@ class TestConnectionPool(HTTPDummyServerTestCase):
         }
 
         r = self.pool.request("POST", "/upload", fields=fields)
-        assert r.status == 200, r.data
+        assert r.status_code == 200, r.data
 
     def test_nagle(self):
         """ Test that connections have TCP_NODELAY turned on """
@@ -371,7 +371,7 @@ class TestConnectionPool(HTTPDummyServerTestCase):
             r = pool.request("GET", "/keepalive?close=0")
             r = pool.request("GET", "/keepalive?close=0")
 
-            assert r.status == 200
+            assert r.status_code == 200
             assert pool.num_connections == 1
             assert pool.num_requests == 2
 
@@ -415,7 +415,7 @@ class TestConnectionPool(HTTPDummyServerTestCase):
                 "GET", "/keepalive?close=1", retries=0, headers={"Connection": "close"}
             )
 
-            assert r.status == 200
+            assert r.status_code == 200
 
             conn = pool.pool.get()
             assert conn._sock is None
@@ -680,4 +680,4 @@ class TestConnectionPool(HTTPDummyServerTestCase):
     def test_mixed_case_hostname(self):
         with HTTPConnectionPool("LoCaLhOsT", self.port) as pool:
             response = pool.request("GET", "http://LoCaLhOsT:%d/" % self.port)
-            assert response.status == 200
+            assert response.status_code == 200

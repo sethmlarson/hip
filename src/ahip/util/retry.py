@@ -407,17 +407,19 @@ class Retry(object):
                 redirect -= 1
             cause = "too many redirects"
             redirect_location = response.get_redirect_location()
-            status = response.status
+            status = response.status_code
 
         else:
             # Incrementing because of a server error like a 500 in
             # status_forcelist and a the given method is in the whitelist
             cause = ResponseError.GENERIC_ERROR
-            if response and response.status:
+            if response and response.status_code:
                 if status_count is not None:
                     status_count -= 1
-                cause = ResponseError.SPECIFIC_ERROR.format(status_code=response.status)
-                status = response.status
+                cause = ResponseError.SPECIFIC_ERROR.format(
+                    status_code=response.status_code
+                )
+                status = response.status_code
 
         history = self.history + (
             RequestHistory(method, url, error, status, redirect_location),

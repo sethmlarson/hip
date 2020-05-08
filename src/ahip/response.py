@@ -13,7 +13,7 @@ except ImportError:
 
 import h11
 
-from ._collections import HTTPHeaderDict
+from ._collections import Headers
 from .exceptions import ProtocolError, DecodeError, ReadTimeoutError
 from .packages.six import string_types as basestring
 from .util.ssl_ import BaseSSLError
@@ -189,10 +189,10 @@ class HTTPResponse(io.IOBase):
         request_url=None,
     ):
 
-        if isinstance(headers, HTTPHeaderDict):
+        if isinstance(headers, Headers):
             self.headers = headers
         else:
-            self.headers = HTTPHeaderDict(headers)
+            self.headers = Headers(headers)
         self.status = status
         self.version = version
         self.reason = reason

@@ -236,7 +236,7 @@ class TestSOCKS5Proxy(IPV4SocketDummyServerTestCase):
         with socks.SOCKSProxyManager(proxy_url) as pm:
             response = pm.request("GET", "http://16.17.18.19")
 
-            assert response.status == 200
+            assert response.status_code == 200
             assert response.data == b""
             assert response.headers["Server"] == "SocksTestServer"
 
@@ -269,7 +269,7 @@ class TestSOCKS5Proxy(IPV4SocketDummyServerTestCase):
         with socks.SOCKSProxyManager(proxy_url) as pm:
             response = pm.request("GET", "http://localhost")
 
-            assert response.status == 200
+            assert response.status_code == 200
             assert response.data == b""
             assert response.headers["Server"] == "SocksTestServer"
 
@@ -305,7 +305,7 @@ class TestSOCKS5Proxy(IPV4SocketDummyServerTestCase):
         proxy_url = "socks5h://%s:%s" % (self.host, self.port)
         with socks.SOCKSProxyManager(proxy_url) as pm:
             response = pm.request("GET", "http://example.com")
-            assert response.status == 200
+            assert response.status_code == 200
 
     def test_connection_timeouts(self):
         event = threading.Event()
@@ -387,7 +387,7 @@ class TestSOCKS5Proxy(IPV4SocketDummyServerTestCase):
         with socks.SOCKSProxyManager(proxy_url, username="user", password="pass") as pm:
             response = pm.request("GET", "http://16.17.18.19")
 
-            assert response.status == 200
+            assert response.status_code == 200
             assert response.data == b""
             assert response.headers["Server"] == "SocksTestServer"
 
@@ -427,7 +427,7 @@ class TestSOCKS5Proxy(IPV4SocketDummyServerTestCase):
         with socks.SOCKSProxyManager(proxy_url) as pm:
             response = pm.request("GET", "http://16.17.18.19")
 
-            assert response.status == 200
+            assert response.status_code == 200
             assert response.data == b""
             assert response.headers["Server"] == "SocksTestServer"
 
@@ -483,7 +483,7 @@ class TestSOCKS5Proxy(IPV4SocketDummyServerTestCase):
             proxy_url, source_address=("127.0.0.1", expected_port)
         ) as pm:
             response = pm.request("GET", "http://16.17.18.19")
-            assert response.status == 200
+            assert response.status_code == 200
 
 
 class TestSOCKS4Proxy(IPV4SocketDummyServerTestCase):
@@ -523,7 +523,7 @@ class TestSOCKS4Proxy(IPV4SocketDummyServerTestCase):
         with socks.SOCKSProxyManager(proxy_url) as pm:
             response = pm.request("GET", "http://16.17.18.19")
 
-            assert response.status == 200
+            assert response.status_code == 200
             assert response.headers["Server"] == "SocksTestServer"
             assert response.data == b""
 
@@ -556,7 +556,7 @@ class TestSOCKS4Proxy(IPV4SocketDummyServerTestCase):
         with socks.SOCKSProxyManager(proxy_url) as pm:
             response = pm.request("GET", "http://localhost")
 
-            assert response.status == 200
+            assert response.status_code == 200
             assert response.headers["Server"] == "SocksTestServer"
             assert response.data == b""
 
@@ -592,7 +592,7 @@ class TestSOCKS4Proxy(IPV4SocketDummyServerTestCase):
         proxy_url = "socks4a://%s:%s" % (self.host, self.port)
         with socks.SOCKSProxyManager(proxy_url) as pm:
             response = pm.request("GET", "http://example.com")
-            assert response.status == 200
+            assert response.status_code == 200
 
     def test_proxy_rejection(self):
         evt = threading.Event()
@@ -643,7 +643,7 @@ class TestSOCKS4Proxy(IPV4SocketDummyServerTestCase):
         with socks.SOCKSProxyManager(proxy_url, username="user") as pm:
             response = pm.request("GET", "http://16.17.18.19")
 
-            assert response.status == 200
+            assert response.status_code == 200
             assert response.data == b""
             assert response.headers["Server"] == "SocksTestServer"
 
@@ -706,6 +706,6 @@ class TestSOCKSWithTLS(IPV4SocketDummyServerTestCase):
         with socks.SOCKSProxyManager(proxy_url, ca_certs=DEFAULT_CA) as pm:
             response = pm.request("GET", "https://localhost")
 
-            assert response.status == 200
+            assert response.status_code == 200
             assert response.data == b""
             assert response.headers["Server"] == "SocksTestServer"
