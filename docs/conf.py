@@ -24,6 +24,8 @@ default_role = "obj"
 
 def setup(app):
     app.add_css_file("hackrtd.css")
+    app.add_js_file("gitter-sidecar.js")
+    app.add_js_file("https://sidecar.gitter.im/dist/sidecar.v1.js")
 
 
 # -- General configuration ------------------------------------------------
